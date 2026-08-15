@@ -7,7 +7,7 @@ import { Input } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
 import { ThemeToggle } from '../components/ThemeToggle';
 import { HouseLogo } from '../components/HouseLogo';
-import { LogOut, Volume2, User, ShieldAlert, Sparkles } from 'lucide-react';
+import { LogOut, Volume2, User, ShieldAlert, Sparkles, AlertTriangle } from 'lucide-react';
 
 interface House {
   id: string;
@@ -57,9 +57,15 @@ export default function Player() {
   useEffect(() => {
     // Fetch houses for login
     fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/houses')
-      .then(res => res.json())
+      .then(res => {
+        if (!res.ok) throw new Error('Network response was not ok');
+        return res.json();
+      })
       .then((data: House[]) => setHousesList(data))
-      .catch(console.error);
+      .catch(err => {
+        console.error("Failed to fetch houses:", err);
+        setLoginForm(prev => ({ ...prev, error: "Failed to connect to server. Check backend URL." }));
+      });
 
     socket.on('state:update', (state: GameState) => {
       setGameState(state);
@@ -219,9 +225,16 @@ export default function Player() {
               className="text-sm p-3.5"
             />
             
-            <Button type="submit" className="w-full mt-2 py-3.5 text-base font-bold shadow-lg shadow-brand/20">
-              ENTER GAME
+            <Button type="submit" className="w-full mt-2" size="lg">
+              Enter Game
             </Button>
+            
+            {loginForm.error && (
+              <div className="mt-4 p-3 bg-red-500/20 border border-red-500/50 rounded-lg flex items-center gap-2 text-red-400 text-sm animate-in">
+                <AlertTriangle size={16} />
+                <span>{loginForm.error}</span>
+              </div>
+            )}
           </form>
 
           <div className="mt-6 pt-4 border-t border-border-glass text-center">
