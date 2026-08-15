@@ -10,7 +10,7 @@ import {
   getHouseByLoginCode, registerDevice, getAdminByUsername, getAdminById, createAdmin,
   createHouse, updateHouse, deleteHouse, updateHouseLoginCode,
   createQuestion, updateQuestion, deleteQuestion, resetAllQuestions, logRound, getRecentRounds,
-  getDeviceById, resetLeaderboard
+  getDeviceById, resetLeaderboard, initDb
 } from './db.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecret_hhm_quiz_admin';
@@ -542,6 +542,11 @@ function getDeviceCounts() {
 }
 
 const PORT = process.env.PORT || 3001;
-server.listen(PORT, () => {
-  console.log(`Server listening on port ${PORT}`);
+initDb().then(() => {
+  server.listen(PORT, () => {
+    console.log(`Server listening on port ${PORT}`);
+  });
+}).catch(err => {
+  console.error("Failed to initialize database:", err);
+  process.exit(1);
 });

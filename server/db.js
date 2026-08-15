@@ -10,11 +10,10 @@ export const db = new sqlite3.Database(dbPath, (err) => {
     console.error('Error opening database', err.message);
   } else {
     console.log('Connected to SQLite database.');
-    initDb();
   }
 });
 
-function initDb() {
+export const initDb = () => new Promise((resolve, reject) => {
   db.serialize(() => {
     db.run(`
       CREATE TABLE IF NOT EXISTS houses (
@@ -80,32 +79,45 @@ function initDb() {
       )
     `);
 
-    // Seed data
+    let pendingChecks = 2;
+    const checkDone = () => {
+      pendingChecks--;
+      if (pendingChecks === 0) resolve();
+    };
+
     db.get("SELECT COUNT(*) AS count FROM houses", (err, row) => {
-      if (row.count === 0) {
-        const stmt = db.prepare("INSERT INTO houses (id, name, color, icon, login_code) VALUES (?, ?, ?, ?, ?)");
-        stmt.run('house_1', 'House Aakash', '#0ea5e9', 'Cloud', '1234');
-        stmt.run('house_2', 'House Vayu', '#94a3b8', 'Wind', '2345');
-        stmt.run('house_3', 'House Agni', '#ef4444', 'Flame', '3456');
-        stmt.run('house_4', 'House Prudhvi', '#22c55e', 'TreePine', '4567');
-        stmt.run('house_5', 'House Jal', '#3b82f6', 'Droplets', '5678');
-        stmt.finalize();
-        console.log('Seeded houses.');
+      if (row && row.count === 0) {
+        db.serialize(() => {
+          const stmt = db.prepare("INSERT INTO houses (id, name, color, icon, login_code) VALUES (?, ?, ?, ?, ?)");
+          stmt.run('house_1', 'House Aakash', '#0ea5e9', 'Cloud', '1234');
+          stmt.run('house_2', 'House Vayu', '#94a3b8', 'Wind', '2345');
+          stmt.run('house_3', 'House Agni', '#ef4444', 'Flame', '3456');
+          stmt.run('house_4', 'House Prudhvi', '#22c55e', 'TreePine', '4567');
+          stmt.run('house_5', 'House Jal', '#3b82f6', 'Droplets', '5678');
+          stmt.finalize(checkDone);
+          console.log('Seeded houses.');
+        });
+      } else {
+        checkDone();
       }
     });
 
     db.get("SELECT COUNT(*) AS count FROM questions", (err, row) => {
-      if (row.count === 0) {
-        const stmt = db.prepare("INSERT INTO questions (id, clue_letters, hero_name, heroine_name, movie_name) VALUES (?, ?, ?, ?, ?)");
-        stmt.run('q_1', 'MSD', 'Mahesh Babu', 'Samantha', 'Dookudu');
-        stmt.run('q_2', 'PRB', 'Prabhas', 'Anushka', 'Baahubali');
-        stmt.run('q_3', 'VSP', 'Vijay', 'Samantha', 'Theri'); 
-        stmt.finalize();
-        console.log('Seeded questions.');
+      if (row && row.count === 0) {
+        db.serialize(() => {
+          const stmt = db.prepare("INSERT INTO questions (id, clue_letters, hero_name, heroine_name, movie_name) VALUES (?, ?, ?, ?, ?)");
+          stmt.run('q_1', 'MSD', 'Mahesh Babu', 'Samantha', 'Dookudu');
+          stmt.run('q_2', 'VVR', 'Ram Charan', 'Kiara', 'Vinaya Vidheya Rama');
+          stmt.run('q_3', 'KGF', 'Yash', 'Srinidhi', 'KGF');
+          stmt.finalize(checkDone);
+          console.log('Seeded questions.');
+        });
+      } else {
+        checkDone();
       }
     });
   });
-}
+});
 
 // =======================
 // HOUSE HELPERS
