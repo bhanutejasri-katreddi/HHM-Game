@@ -14,10 +14,6 @@ import { Input } from '../components/ui/Input';
 import { ThemeToggle } from '../components/ThemeToggle';
 import { HouseLogo } from '../components/HouseLogo';
 
-const getBackendUrl = () => {
-  return localStorage.getItem('BACKEND_URL') || import.meta.env.VITE_SERVER_URL || 'http://localhost:3001';
-};
-
 interface House {
   id: string;
   name: string;
@@ -85,7 +81,7 @@ export default function Admin() {
   const [houseForm, setHouseForm] = useState<{ id: string | null; name: string; color: string; icon: string; loginCode: string }>({ id: null, name: '', color: '#000000', icon: 'Circle', loginCode: '' });
 
   useEffect(() => {
-    fetch(getBackendUrl() + '/api/admin/me', {credentials: 'include'})
+    fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/admin/me', {credentials: 'include'})
       .then(res => {
         if (!res.ok) throw new Error('Unauthorized');
         return res.json();
@@ -139,15 +135,15 @@ export default function Admin() {
   }, [navigate]);
 
   const fetchData = () => {
-    fetch(getBackendUrl() + '/api/admin/houses', { credentials: 'include' })
+    fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/admin/houses', { credentials: 'include' })
       .then(res => res.json())
       .then((data: House[]) => setHouses(data))
       .catch(console.error);
-    fetch(getBackendUrl() + '/api/admin/questions', { credentials: 'include' })
+    fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/admin/questions', { credentials: 'include' })
       .then(res => res.json())
       .then((data: Question[]) => setQuestions(data))
       .catch(console.error);
-    fetch(getBackendUrl() + '/api/admin/recent-rounds', { credentials: 'include' })
+    fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/admin/recent-rounds', { credentials: 'include' })
       .then(res => res.json())
       .then((data: RecentRound[]) => setRecentRounds(Array.isArray(data) ? data : []))
       .catch(console.error);
@@ -158,7 +154,7 @@ export default function Admin() {
     console.log('[Admin] startRound called with questionId:', questionId);
     setRevealAnswer(false);
     try {
-      const res = await fetch(getBackendUrl() + '/api/admin/start-round', {
+      const res = await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/admin/start-round', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -201,7 +197,7 @@ export default function Admin() {
   };
 
   const judge = async (correct: boolean) => {
-    await fetch(getBackendUrl() + '/api/admin/judge', {
+    await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/admin/judge', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
@@ -212,13 +208,13 @@ export default function Admin() {
 
   const resetBuzzers = async () => {
     setRevealAnswer(false);
-    await fetch(getBackendUrl() + '/api/admin/reset-buzzers', { method: 'POST', credentials: 'include' });
+    await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/admin/reset-buzzers', { method: 'POST', credentials: 'include' });
   };
 
   const goIdle = async () => {
     setRevealAnswer(false);
     try {
-      await fetch(getBackendUrl() + '/api/admin/idle', { method: 'POST', credentials: 'include' });
+      await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/admin/idle', { method: 'POST', credentials: 'include' });
       fetchData();
     } catch (e) {
       alert('Error going idle');
@@ -228,7 +224,7 @@ export default function Admin() {
   const resetLeaderboard = async () => {
     if (!confirm('This will reset all house scores to 0. This cannot be undone. Are you sure?')) return;
     try {
-      const res = await fetch(getBackendUrl() + '/api/admin/reset-leaderboard', { method: 'POST', credentials: 'include' });
+      const res = await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/admin/reset-leaderboard', { method: 'POST', credentials: 'include' });
       if (!res.ok) throw new Error('Request failed');
       fetchData();
     } catch(err) {
@@ -242,7 +238,7 @@ export default function Admin() {
     const method = questionForm.id ? 'PUT' : 'POST';
     const url = questionForm.id ? `/api/admin/questions/${questionForm.id}` : '/api/admin/questions';
     try {
-      const res = await fetch(getBackendUrl() + url, {
+      const res = await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + url, {
         method, headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(questionForm)
       });
       const data = await res.json();
@@ -259,13 +255,13 @@ export default function Admin() {
   const deleteQuestion = async (id?: string | null) => {
     if (!id) return;
     if (!confirm('Delete this question?')) return;
-    await fetch(getBackendUrl() + `/api/admin/questions/${id}`, { method: 'DELETE', credentials: 'include' });
+    await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + `/api/admin/questions/${id}`, { method: 'DELETE', credentials: 'include' });
     fetchData();
   };
 
   const resetUsedQuestions = async () => {
     if (!confirm('Reset all questions to unused?')) return;
-    await fetch(getBackendUrl() + '/api/admin/questions/reset-used', { method: 'POST', credentials: 'include' });
+    await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/admin/questions/reset-used', { method: 'POST', credentials: 'include' });
     fetchData();
   };
 
@@ -275,7 +271,7 @@ export default function Admin() {
     const reader = new FileReader();
     reader.onload = async (ev) => {
       const csvData = ev.target?.result;
-      await fetch(getBackendUrl() + '/api/admin/questions/import', {
+      await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/admin/questions/import', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ csvData })
       });
       fetchData();
@@ -289,7 +285,7 @@ export default function Admin() {
     e.preventDefault();
     const method = houseForm.id ? 'PUT' : 'POST';
     const url = houseForm.id ? `/api/admin/houses/${houseForm.id}` : '/api/admin/houses';
-    await fetch(getBackendUrl() + url, {
+    await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + url, {
       method, headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(houseForm)
     });
     setHouseForm({ id: null, name: '', color: '#000000', icon: 'Circle', loginCode: '' });
@@ -298,13 +294,13 @@ export default function Admin() {
 
   const deleteHouse = async (id: string) => {
     if (!confirm('Delete this house?')) return;
-    await fetch(getBackendUrl() + `/api/admin/houses/${id}`, { method: 'DELETE', credentials: 'include' });
+    await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + `/api/admin/houses/${id}`, { method: 'DELETE', credentials: 'include' });
     fetchData();
   };
 
   const regenerateCode = async (id: string) => {
     if (!confirm('Regenerate PIN for this house? Students will need the new PIN to join.')) return;
-    await fetch(getBackendUrl() + `/api/admin/houses/${id}/regenerate-code`, { method: 'POST', credentials: 'include' });
+    await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + `/api/admin/houses/${id}/regenerate-code`, { method: 'POST', credentials: 'include' });
     fetchData();
   };
 
@@ -315,7 +311,7 @@ export default function Admin() {
     if (!confirm('This will invalidate the current PIN — students using it will need the new code. Proceed?')) return;
     
     try {
-      const res = await fetch(getBackendUrl() + `/api/admin/houses/${id}/custom-code`, {
+      const res = await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + `/api/admin/houses/${id}/custom-code`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ loginCode: customPin })
       });
       const data = await res.json();
@@ -330,7 +326,7 @@ export default function Admin() {
   };
 
   const logout = async () => {
-    await fetch(getBackendUrl() + '/api/admin/logout', { method: 'POST', credentials: 'include' });
+    await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/admin/logout', { method: 'POST', credentials: 'include' });
     navigate('/admin/login');
   };
 

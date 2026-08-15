@@ -52,10 +52,6 @@ const getDeviceId = () => {
   return id;
 };
 
-const getBackendUrl = () => {
-  return localStorage.getItem('BACKEND_URL') || import.meta.env.VITE_SERVER_URL || 'http://localhost:3001';
-};
-
 export default function Player() {
   const [house, setHouse] = useState<House | null>(() => {
     try {
@@ -74,14 +70,12 @@ export default function Player() {
   
   const [gameState, setGameState] = useState<GameState>({ status: 'IDLE', timerSeconds: 0, lockedHouseId: null });
   const [timer, setTimer] = useState(0);
-  const [showSettings, setShowSettings] = useState(false);
-  const [customUrl, setCustomUrl] = useState(localStorage.getItem('BACKEND_URL') || '');
   const [myAnswerStatus, setMyAnswerStatus] = useState<'correct' | 'wrong' | null>(null);
   const [isTapped, setIsTapped] = useState(false);
 
   useEffect(() => {
     // Fetch houses for login
-    fetch(getBackendUrl() + '/api/houses')
+    fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/houses')
       .then(res => {
         if (!res.ok) throw new Error('Network response was not ok');
         return res.json();
@@ -136,7 +130,7 @@ export default function Player() {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const res = await fetch(getBackendUrl() + '/api/login', {
+      const res = await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...loginForm, deviceId: getDeviceId() })
@@ -173,7 +167,7 @@ export default function Player() {
     setTimeout(() => setIsTapped(false), 500);
 
     try {
-      await fetch(getBackendUrl() + '/api/buzz', {
+      await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/buzz', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -272,43 +266,9 @@ export default function Player() {
             </Button>
             
             {loginForm.error && (
-              <div className="mt-4 p-3 bg-red-500/20 border border-red-500/50 rounded-lg flex flex-col gap-2 text-red-400 text-sm animate-in">
-                <div className="flex items-center gap-2">
-                  <AlertTriangle size={16} />
-                  <span>{loginForm.error}</span>
-                </div>
-                <button 
-                  type="button" 
-                  onClick={() => setShowSettings(!showSettings)}
-                  className="text-xs text-brand underline text-left w-max"
-                >
-                  Configure Backend URL
-                </button>
-              </div>
-            )}
-            
-            {showSettings && (
-              <div className="mt-4 p-4 bg-black/20 rounded-xl border border-white/10 animate-in slide-in-from-top-2">
-                <label className="text-xs font-bold text-secondary uppercase mb-2 block">Custom Backend URL</label>
-                <div className="flex gap-2">
-                  <input 
-                    type="text" 
-                    value={customUrl}
-                    onChange={(e) => setCustomUrl(e.target.value)}
-                    placeholder="https://your-backend.onrender.com"
-                    className="flex-1 bg-black/40 text-sm p-2 rounded border border-white/10 text-white outline-none focus:border-brand"
-                  />
-                  <Button 
-                    type="button" 
-                    className="px-4 py-2"
-                    onClick={() => {
-                      localStorage.setItem('BACKEND_URL', customUrl.replace(/\/$/, ''));
-                      window.location.reload();
-                    }}
-                  >
-                    Save
-                  </Button>
-                </div>
+              <div className="mt-4 p-3 bg-red-500/20 border border-red-500/50 rounded-lg flex items-center gap-2 text-red-400 text-sm animate-in">
+                <AlertTriangle size={16} />
+                <span>{loginForm.error}</span>
               </div>
             )}
           </form>
