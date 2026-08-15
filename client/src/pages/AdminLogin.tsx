@@ -17,7 +17,8 @@ export default function AdminLogin() {
     e.preventDefault();
     const endpoint = isLogin ? '/api/admin/login' : '/api/admin/signup';
     try {
-      const res = await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + endpoint, {
+      const backendUrl = localStorage.getItem('BACKEND_URL') || import.meta.env.VITE_SERVER_URL || 'http://localhost:3001';
+      const res = await fetch(backendUrl + endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
