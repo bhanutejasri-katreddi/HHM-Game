@@ -60,7 +60,14 @@ interface RecentRound {
   student_name?: string | null;
 }
 
+// Helper to retrieve auth header
+const getAuthHeaders = (): Record<string, string> => {
+  const token = localStorage.getItem('admin_token');
+  return token ? { 'Authorization': `Bearer ${token}` } : {};
+};
+
 export default function Admin() {
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const [activeTab, setActiveTab] = useState<'live' | 'questions' | 'houses'>('live');
   const [adminUsername, setAdminUsername] = useState('');
   const [gameState, setGameState] = useState<GameState>({ status: 'IDLE', timerSeconds: 0, lockedHouseId: null, currentQuestion: null });
@@ -80,16 +87,58 @@ export default function Admin() {
   const [questionForm, setQuestionForm] = useState<Question>({ id: null, clue_letters: '', hero_name: '', heroine_name: '', movie_name: '', points: 10 });
   const [houseForm, setHouseForm] = useState<{ id: string | null; name: string; color: string; icon: string; loginCode: string }>({ id: null, name: '', color: '#000000', icon: 'Circle', loginCode: '' });
 
+  const fetchData = () => {
+    fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/admin/houses', {
+      credentials: 'include',
+      headers: { ...getAuthHeaders() }
+    })
+      .then(res => res.json())
+      .then((data: House[]) => setHouses(data))
+      .catch(console.error);
+
+    fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/admin/questions', {
+      credentials: 'include',
+      headers: { ...getAuthHeaders() }
+    })
+      .then(res => res.json())
+      .then((data: Question[]) => setQuestions(data))
+      .catch(console.error);
+
+    fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/admin/recent-rounds', {
+      credentials: 'include',
+      headers: { ...getAuthHeaders() }
+    })
+      .then(res => res.json())
+      .then((data: RecentRound[]) => setRecentRounds(Array.isArray(data) ? data : []))
+      .catch(console.error);
+  };
+
   useEffect(() => {
-    fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/admin/me', {credentials: 'include'})
+    let isMounted = true;
+    
+    // Verify admin authentication before revealing dashboard
+    fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/admin/me', {
+      credentials: 'include',
+      headers: { ...getAuthHeaders() }
+    })
       .then(res => {
         if (!res.ok) throw new Error('Unauthorized');
         return res.json();
       })
-      .then(data => setAdminUsername(data.username))
-      .catch(() => navigate('/admin/login'));
-
-    fetchData();
+      .then(data => {
+        if (isMounted) {
+          setAdminUsername(data.username || localStorage.getItem('admin_username') || 'Admin');
+          setIsCheckingAuth(false);
+          fetchData();
+        }
+      })
+      .catch(() => {
+        if (isMounted) {
+          localStorage.removeItem('admin_token');
+          localStorage.removeItem('admin_username');
+          navigate('/admin/login', { replace: true });
+        }
+      });
 
     socket.on('state:update', (state: GameState) => {
       setGameState(state);
@@ -125,6 +174,7 @@ export default function Admin() {
     socket.on('devices:update', (counts: Record<string, number>) => setDeviceCounts(counts));
 
     return () => {
+      isMounted = false;
       socket.off('state:update');
       socket.off('clue:show');
       socket.off('buzzer:locked');
@@ -134,21 +184,6 @@ export default function Admin() {
     };
   }, [navigate]);
 
-  const fetchData = () => {
-    fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/admin/houses', { credentials: 'include' })
-      .then(res => res.json())
-      .then((data: House[]) => setHouses(data))
-      .catch(console.error);
-    fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/admin/questions', { credentials: 'include' })
-      .then(res => res.json())
-      .then((data: Question[]) => setQuestions(data))
-      .catch(console.error);
-    fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/admin/recent-rounds', { credentials: 'include' })
-      .then(res => res.json())
-      .then((data: RecentRound[]) => setRecentRounds(Array.isArray(data) ? data : []))
-      .catch(console.error);
-  };
-
   // --- Live Game Actions ---
   const startRound = async (questionId: string | null = null) => {
     console.log('[Admin] startRound called with questionId:', questionId);
@@ -156,7 +191,7 @@ export default function Admin() {
     try {
       const res = await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/admin/start-round', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
         credentials: 'include',
         body: JSON.stringify({ questionId })
       });
@@ -199,7 +234,7 @@ export default function Admin() {
   const judge = async (correct: boolean) => {
     await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/admin/judge', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
       credentials: 'include',
       body: JSON.stringify({ correct })
     });
@@ -208,13 +243,21 @@ export default function Admin() {
 
   const resetBuzzers = async () => {
     setRevealAnswer(false);
-    await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/admin/reset-buzzers', { method: 'POST', credentials: 'include' });
+    await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/admin/reset-buzzers', {
+      method: 'POST',
+      headers: { ...getAuthHeaders() },
+      credentials: 'include'
+    });
   };
 
   const goIdle = async () => {
     setRevealAnswer(false);
     try {
-      await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/admin/idle', { method: 'POST', credentials: 'include' });
+      await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/admin/idle', {
+        method: 'POST',
+        headers: { ...getAuthHeaders() },
+        credentials: 'include'
+      });
       fetchData();
     } catch (e) {
       alert('Error going idle');
@@ -224,7 +267,11 @@ export default function Admin() {
   const resetLeaderboard = async () => {
     if (!confirm('This will reset all house scores to 0. This cannot be undone. Are you sure?')) return;
     try {
-      const res = await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/admin/reset-leaderboard', { method: 'POST', credentials: 'include' });
+      const res = await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/admin/reset-leaderboard', {
+        method: 'POST',
+        headers: { ...getAuthHeaders() },
+        credentials: 'include'
+      });
       if (!res.ok) throw new Error('Request failed');
       fetchData();
     } catch(err) {
@@ -239,7 +286,10 @@ export default function Admin() {
     const url = questionForm.id ? `/api/admin/questions/${questionForm.id}` : '/api/admin/questions';
     try {
       const res = await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + url, {
-        method, headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(questionForm)
+        method,
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        credentials: 'include',
+        body: JSON.stringify(questionForm)
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to save question');
@@ -255,13 +305,21 @@ export default function Admin() {
   const deleteQuestion = async (id?: string | null) => {
     if (!id) return;
     if (!confirm('Delete this question?')) return;
-    await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + `/api/admin/questions/${id}`, { method: 'DELETE', credentials: 'include' });
+    await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + `/api/admin/questions/${id}`, {
+      method: 'DELETE',
+      headers: { ...getAuthHeaders() },
+      credentials: 'include'
+    });
     fetchData();
   };
 
   const resetUsedQuestions = async () => {
     if (!confirm('Reset all questions to unused?')) return;
-    await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/admin/questions/reset-used', { method: 'POST', credentials: 'include' });
+    await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/admin/questions/reset-used', {
+      method: 'POST',
+      headers: { ...getAuthHeaders() },
+      credentials: 'include'
+    });
     fetchData();
   };
 
@@ -272,7 +330,10 @@ export default function Admin() {
     reader.onload = async (ev) => {
       const csvData = ev.target?.result;
       await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/admin/questions/import', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ csvData })
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        credentials: 'include',
+        body: JSON.stringify({ csvData })
       });
       fetchData();
     };
@@ -286,7 +347,10 @@ export default function Admin() {
     const method = houseForm.id ? 'PUT' : 'POST';
     const url = houseForm.id ? `/api/admin/houses/${houseForm.id}` : '/api/admin/houses';
     await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + url, {
-      method, headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(houseForm)
+      method,
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+      credentials: 'include',
+      body: JSON.stringify(houseForm)
     });
     setHouseForm({ id: null, name: '', color: '#000000', icon: 'Circle', loginCode: '' });
     fetchData();
@@ -294,13 +358,21 @@ export default function Admin() {
 
   const deleteHouse = async (id: string) => {
     if (!confirm('Delete this house?')) return;
-    await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + `/api/admin/houses/${id}`, { method: 'DELETE', credentials: 'include' });
+    await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + `/api/admin/houses/${id}`, {
+      method: 'DELETE',
+      headers: { ...getAuthHeaders() },
+      credentials: 'include'
+    });
     fetchData();
   };
 
   const regenerateCode = async (id: string) => {
     if (!confirm('Regenerate PIN for this house? Students will need the new PIN to join.')) return;
-    await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + `/api/admin/houses/${id}/regenerate-code`, { method: 'POST', credentials: 'include' });
+    await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + `/api/admin/houses/${id}/regenerate-code`, {
+      method: 'POST',
+      headers: { ...getAuthHeaders() },
+      credentials: 'include'
+    });
     fetchData();
   };
 
@@ -312,7 +384,10 @@ export default function Admin() {
     
     try {
       const res = await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + `/api/admin/houses/${id}/custom-code`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ loginCode: customPin })
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        credentials: 'include',
+        body: JSON.stringify({ loginCode: customPin })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
@@ -326,9 +401,30 @@ export default function Admin() {
   };
 
   const logout = async () => {
-    await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/admin/logout', { method: 'POST', credentials: 'include' });
+    try {
+      await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/admin/logout', {
+        method: 'POST',
+        headers: { ...getAuthHeaders() },
+        credentials: 'include'
+      });
+    } catch (e) {
+      // Ignore network errors on logout
+    }
+    localStorage.removeItem('admin_token');
+    localStorage.removeItem('admin_username');
     navigate('/admin/login');
   };
+
+  if (isCheckingAuth) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4">
+        <div className="flex flex-col items-center gap-4 text-center">
+          <div className="w-10 h-10 border-4 border-brand border-t-transparent rounded-full animate-spin" />
+          <p className="text-secondary text-sm font-medium">Verifying host session...</p>
+        </div>
+      </div>
+    );
+  }
 
   const lockedHouse = houses.find(h => h.id === gameState.lockedHouseId);
 

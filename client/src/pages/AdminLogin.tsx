@@ -29,6 +29,14 @@ export default function AdminLogin() {
         throw new Error(data.error || 'Authentication failed');
       }
       
+      if (data.token) {
+        localStorage.setItem('admin_token', data.token);
+        localStorage.setItem('admin_username', data.username || username);
+        console.log('[AdminLogin] Auth token stored in localStorage (length:', data.token.length, ') and httpOnly cookie requested.');
+      } else {
+        console.log('[AdminLogin] No token returned in JSON response; relying on httpOnly cookie.');
+      }
+      
       navigate('/admin/dashboard');
     } catch (err: any) {
       if (err.message === 'Failed to fetch') {

@@ -21,13 +21,14 @@ async function runTests() {
   assert.strictEqual(signupRes.status, 200, "Signup should return 200");
   const signupData = await signupRes.json();
   assert.strictEqual(signupData.success, true, "Signup success should be true");
+  assert.ok(signupData.token, "Signup must return JWT token for cross-domain auth");
   
   // Extract cookie from response header
   const rawCookie = signupRes.headers.get('set-cookie');
   if (rawCookie) {
     adminCookie = rawCookie.split(';')[0];
   }
-  console.log("✅ Admin Signup passed");
+  console.log("✅ Admin Signup passed (returned JWT token & cookie)");
 
   // Admin Login
   const loginRes = await fetch(`${BASE_URL}/api/admin/login`, {
@@ -38,26 +39,31 @@ async function runTests() {
   assert.strictEqual(loginRes.status, 200, "Login should return 200");
   const loginData = await loginRes.json();
   assert.strictEqual(loginData.success, true, "Login success should be true");
-  const loginRawCookie = loginRes.headers.get('set-cookie');
-  if (loginRawCookie) {
-    adminCookie = loginRawCookie.split(';')[0];
-  }
-  console.log("✅ Admin Login passed");
+  assert.ok(loginData.token, "Login must return JWT token for cross-domain auth");
+  const authToken = loginData.token;
+  console.log("✅ Admin Login passed (returned JWT token & cookie)");
 
-  // Admin Me (Auth middleware test)
-  const meRes = await fetch(`${BASE_URL}/api/admin/me`, {
+  // Admin Me (Header-based auth test, simulating cross-origin browser)
+  const meHeaderRes = await fetch(`${BASE_URL}/api/admin/me`, {
+    headers: { 'Authorization': `Bearer ${authToken}` }
+  });
+  assert.strictEqual(meHeaderRes.status, 200, "/api/admin/me with Bearer token should return 200");
+  const meHeaderData = await meHeaderRes.json();
+  assert.strictEqual(meHeaderData.username, testAdminUser, "Username should match");
+  console.log("✅ Admin Me passed via Authorization Bearer header");
+
+  // Admin Me (Cookie-based auth test)
+  const meCookieRes = await fetch(`${BASE_URL}/api/admin/me`, {
     headers: { 'Cookie': adminCookie }
   });
-  assert.strictEqual(meRes.status, 200, "/api/admin/me should return 200");
-  const meData = await meRes.json();
-  assert.strictEqual(meData.username, testAdminUser, "Username should match");
-  console.log("✅ Admin Me passed");
+  assert.strictEqual(meCookieRes.status, 200, "/api/admin/me with Cookie should return 200");
+  console.log("✅ Admin Me passed via Cookie");
 
   // 2. HOUSE MANAGER CRUD & PIN OPERATIONS
   console.log("\n--- Testing House Manager ---");
-  // List houses
+  // List houses (using Bearer header)
   const housesRes = await fetch(`${BASE_URL}/api/admin/houses`, {
-    headers: { 'Cookie': adminCookie }
+    headers: { 'Authorization': `Bearer ${authToken}` }
   });
   assert.strictEqual(housesRes.status, 200);
   const initialHouses = await housesRes.json();

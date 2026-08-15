@@ -29,19 +29,32 @@ app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
 app.use(cookieParser());
 
-// Auth Middleware
+// Auth Middleware - supports both Cookie and Authorization Bearer header
 const authenticateAdmin = async (req, res, next) => {
-  const token = req.cookies.admin_token;
+  const authHeader = req.headers.authorization;
+  const bearerToken = authHeader && authHeader.startsWith('Bearer ') ? authHeader.substring(7) : null;
+  const token = req.cookies.admin_token || bearerToken || req.headers['x-admin-token'];
+  
   if (!token) return res.status(401).json({ error: 'Unauthorized' });
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
-    const admin = await getAdminById(decoded.id);
-    if (!admin) throw new Error();
+    const admin = getAdminById(decoded.id);
+    if (!admin) throw new Error('Admin not found');
     req.admin = admin;
     next();
   } catch (err) {
     res.status(401).json({ error: 'Invalid token' });
   }
+};
+
+const getCookieOptions = () => {
+  const isProd = process.env.NODE_ENV === 'production' || Boolean(process.env.RENDER) || Boolean(process.env.DB_PATH);
+  return {
+    httpOnly: true,
+    secure: isProd,
+    sameSite: isProd ? 'none' : 'lax',
+    maxAge: 7 * 24 * 3600000
+  };
 };
 
 // Game State
@@ -84,15 +97,15 @@ const broadcastDevices = () => {
 app.post('/api/admin/signup', async (req, res) => {
   const { username, password } = req.body;
   try {
-    const existing = await getAdminByUsername(username);
+    const existing = getAdminByUsername(username);
     if (existing) return res.status(400).json({ error: 'Username already taken' });
     const hash = await bcrypt.hash(password, 10);
     const id = 'admin_' + Date.now();
-    await createAdmin(id, username, hash);
+    createAdmin(id, username, hash);
     
     const token = jwt.sign({ id }, JWT_SECRET, { expiresIn: '7d' });
-    res.cookie('admin_token', token, { httpOnly: true, secure: false, maxAge: 7 * 24 * 3600000, sameSite: 'lax' });
-    res.json({ success: true, username });
+    res.cookie('admin_token', token, getCookieOptions());
+    res.json({ success: true, username, token });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error' });
@@ -102,21 +115,21 @@ app.post('/api/admin/signup', async (req, res) => {
 app.post('/api/admin/login', async (req, res) => {
   const { username, password } = req.body;
   try {
-    const admin = await getAdminByUsername(username);
+    const admin = getAdminByUsername(username);
     if (!admin) return res.status(401).json({ error: 'Invalid credentials' });
     const match = await bcrypt.compare(password, admin.password_hash);
     if (!match) return res.status(401).json({ error: 'Invalid credentials' });
     
     const token = jwt.sign({ id: admin.id }, JWT_SECRET, { expiresIn: '7d' });
-    res.cookie('admin_token', token, { httpOnly: true, secure: false, maxAge: 7 * 24 * 3600000, sameSite: 'lax' });
-    res.json({ success: true, username: admin.username });
+    res.cookie('admin_token', token, getCookieOptions());
+    res.json({ success: true, username: admin.username, token });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
   }
 });
 
 app.post('/api/admin/logout', (req, res) => {
-  res.clearCookie('admin_token');
+  res.clearCookie('admin_token', getCookieOptions());
   res.json({ success: true });
 });
 
