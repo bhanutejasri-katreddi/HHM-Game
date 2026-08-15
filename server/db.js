@@ -3,7 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const dbPath = path.join(__dirname, 'buzzer.db');
+const dbPath = process.env.DB_PATH || path.join(__dirname, 'buzzer.db');
 
 export const db = new sqlite3.Database(dbPath, (err) => {
   if (err) {

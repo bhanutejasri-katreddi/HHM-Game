@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: hhm-backend
+    env: node
+    rootDir: server
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: DB_PATH
+        value: /opt/render/project/src/data/buzzer.db
+    disk:
+      name: sqlite-data
+      mountPath: /opt/render/project/src/data
+      sizeGB: 1
