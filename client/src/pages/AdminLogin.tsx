@@ -31,7 +31,11 @@ export default function AdminLogin() {
       
       navigate('/admin/dashboard');
     } catch (err: any) {
-      setError(err.message || 'Error occurred');
+      if (err.message === 'Failed to fetch') {
+        setError('Network Error: Failed to connect to backend. Is VITE_SERVER_URL configured in Vercel?');
+      } else {
+        setError(err.message || 'Error occurred');
+      }
     }
   };
 
