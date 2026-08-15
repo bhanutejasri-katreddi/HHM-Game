@@ -28,6 +28,14 @@ interface GameState {
   buzzersOpen?: boolean;
 }
 
+const FALLBACK_HOUSES: House[] = [
+  { id: 'house_1', name: 'House Aakash', color: '#0ea5e9', icon: 'Cloud' },
+  { id: 'house_2', name: 'House Vayu', color: '#94a3b8', icon: 'Wind' },
+  { id: 'house_3', name: 'House Agni', color: '#ef4444', icon: 'Flame' },
+  { id: 'house_4', name: 'House Prudhvi', color: '#22c55e', icon: 'TreePine' },
+  { id: 'house_5', name: 'House Jal', color: '#3b82f6', icon: 'Droplets' }
+];
+
 const getDeviceId = () => {
   let id = localStorage.getItem('deviceId');
   if (!id) {
@@ -193,16 +201,33 @@ export default function Player() {
 
           <form onSubmit={handleLogin} className="space-y-4 sm:space-y-5">
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-bold text-secondary uppercase tracking-wider">Select House</label>
-              <select 
-                className="w-full bg-black/10 dark:bg-black/30 backdrop-blur-md text-primary p-3.5 rounded-xl border border-border-glass focus:border-brand outline-none transition-all text-sm font-semibold"
-                value={loginForm.houseId} 
-                onChange={e => setLoginForm({...loginForm, houseId: e.target.value})}
-                required
-              >
-                <option value="">-- Choose your House --</option>
-                {housesList.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
-              </select>
+              <label className="text-xs font-bold text-secondary uppercase tracking-wider mb-1">Select Your House</label>
+              <div className="grid grid-cols-2 gap-2 sm:gap-3">
+                {(housesList.length > 0 ? housesList : FALLBACK_HOUSES).map((h, index) => {
+                  const isSelected = loginForm.houseId === h.id;
+                  const isLastOdd = index === 4; // 5th item (index 4)
+                  return (
+                    <button
+                      key={h.id}
+                      type="button"
+                      onClick={() => setLoginForm({...loginForm, houseId: h.id})}
+                      className={`flex items-center justify-center gap-2 p-3 sm:p-4 rounded-xl border transition-all duration-200 ${
+                        isSelected 
+                          ? 'bg-black/30 dark:bg-black/50 shadow-lg scale-[1.02]' 
+                          : 'bg-black/5 dark:bg-black/20 hover:bg-black/10 dark:hover:bg-black/30 opacity-70 hover:opacity-100'
+                      } ${isLastOdd ? 'col-span-2' : ''}`}
+                      style={{ 
+                        borderColor: isSelected ? h.color : 'transparent',
+                      }}
+                    >
+                      <HouseLogo name={h.name} color={h.color} icon={h.icon} size="sm" />
+                      <span className="text-sm sm:text-base font-bold truncate" style={{ color: isSelected ? h.color : 'var(--color-primary)' }}>
+                        {h.name.replace('House ', '')}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
             
             <Input 
