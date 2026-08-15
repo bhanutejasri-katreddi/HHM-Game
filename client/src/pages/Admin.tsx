@@ -2,9 +2,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import { socket } from '../socket';
 import { useNavigate } from 'react-router-dom';
 import { 
-  Users, Trash2, Edit3, Plus, Play, Pause, SkipForward,
-  RotateCcw, ShieldAlert, Monitor, Volume2, UserCheck, 
-  Settings, Clock, ChevronRight, LogOut, Check, X, RefreshCw,
+  Trash2, Plus, Play, SkipForward,
+  RotateCcw, Volume2, 
+  Clock, LogOut, RefreshCw,
   LayoutDashboard, Database, Home, Edit2, Upload, Key, Eye, EyeOff,
   Award, History, XCircle, CheckCircle
 } from 'lucide-react';
