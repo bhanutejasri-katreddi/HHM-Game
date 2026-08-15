@@ -256,6 +256,16 @@ app.post('/api/admin/questions/import', authenticateAdmin, async (req, res) => {
 // ==========================
 // Student API
 // ==========================
+app.get('/api/houses', async (req, res) => {
+  try {
+    const houses = await getHouses();
+    const publicHouses = houses.map(h => ({ id: h.id, name: h.name, color: h.color, icon: h.icon }));
+    res.json(publicHouses);
+  } catch (e) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 app.post('/api/login', async (req, res) => {
   const { houseId, loginCode, studentName, deviceId } = req.body;
   try {
