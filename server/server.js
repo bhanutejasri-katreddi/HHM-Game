@@ -229,7 +229,7 @@ app.post('/api/admin/questions/reset-used', authenticateAdmin, async (req, res) 
 app.post('/api/admin/questions/import', authenticateAdmin, async (req, res) => {
   try {
     const { csvData } = req.body; // Expecting plain text CSV string
-    const lines = csvData.split('\\n');
+    const lines = csvData.split(/\r?\n|\\n/);
     let imported = 0;
     
     // Skip header row if exists, simplistic parsing
@@ -513,7 +513,7 @@ io.on('connection', (socket) => {
   socket.join('game:main');
   
   socket.emit('state:update', gameState);
-  getHouses().then(houses => socket.emit('leaderboard:update', houses));
+  socket.emit('leaderboard:update', getHouses());
   socket.emit('devices:update', getDeviceCounts());
 
   socket.on('join_house', (houseId) => {

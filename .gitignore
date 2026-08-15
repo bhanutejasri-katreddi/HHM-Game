@@ -2,4 +2,7 @@ node_modules/
 .env
 .DS_Store
 *.db
+*.db-wal
+*.db-shm
+*.db-journal
 buzzer.db
