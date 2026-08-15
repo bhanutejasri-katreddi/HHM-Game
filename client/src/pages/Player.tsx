@@ -18,6 +18,13 @@ interface House {
   score?: number;
 }
 
+interface LoginForm {
+  houseId: string;
+  loginCode: string;
+  studentName: string;
+  error?: string;
+}
+
 interface GameState {
   status: string;
   timerSeconds: number;
@@ -55,7 +62,11 @@ export default function Player() {
   });
   const [studentName, setStudentName] = useState<string>(() => localStorage.getItem('student_name') || '');
   const [housesList, setHousesList] = useState<House[]>([]);
-  const [loginForm, setLoginForm] = useState({ houseId: '', loginCode: '', studentName: '' });
+  const [loginForm, setLoginForm] = useState<LoginForm>({
+    houseId: '',
+    loginCode: '',
+    studentName: ''
+  });
   
   const [gameState, setGameState] = useState<GameState>({ status: 'IDLE', timerSeconds: 0, lockedHouseId: null });
   const [timer, setTimer] = useState(0);
@@ -250,7 +261,7 @@ export default function Player() {
               className="text-sm p-3.5"
             />
             
-            <Button type="submit" className="w-full mt-2" size="lg">
+            <Button type="submit" className="w-full mt-2 py-3">
               Enter Game
             </Button>
             
