@@ -174,7 +174,7 @@ async function runTests() {
   assert.strictEqual(updateQRes.status, 200);
   console.log("✅ Updated question");
 
-  // Import CSV questions
+  // Import CSV questions (Standard header)
   const csvContent = "Clue,Hero,Heroine,Movie,Points\nBB,Prabhas,Anushka,Baahubali,10\nPK,Pawan Kalyan,Ileana,Jalsa,10";
   const importQRes = await fetch(`${BASE_URL}/api/admin/questions/import`, {
     method: 'POST',
@@ -184,7 +184,57 @@ async function runTests() {
   assert.strictEqual(importQRes.status, 200);
   const importQData = await importQRes.json();
   assert.strictEqual(importQData.count, 2, "Should import 2 questions");
-  console.log("✅ Imported 2 CSV questions");
+  console.log("✅ Imported 2 CSV questions (standard headers)");
+
+  // Import CSV with alternative headers and quotes
+  const csvWithQuotes = `"clue_letters","hero_name","heroine_name","movie_name","points"\n"RRR","NTR, Ram Charan","Alia Bhatt, Olivia Morris","RRR",20\n"AVPL","Allu Arjun","Pooja Hegde","Ala Vaikunthapurramuloo",15`;
+  const importQuotesRes = await fetch(`${BASE_URL}/api/admin/questions/import`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Cookie': adminCookie },
+    body: JSON.stringify({ csvData: csvWithQuotes })
+  });
+  assert.strictEqual(importQuotesRes.status, 200);
+  const importQuotesData = await importQuotesRes.json();
+  assert.strictEqual(importQuotesData.count, 2, "Should import 2 questions with quotes and alt headers");
+  console.log("✅ Imported 2 CSV questions (quotes & alias headers)");
+
+  // Import pre-parsed questions array
+  const importArrayRes = await fetch(`${BASE_URL}/api/admin/questions/import`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Cookie': adminCookie },
+    body: JSON.stringify({
+      questions: [
+        { clue_letters: 'MSD', hero_name: 'Mahesh Babu', heroine_name: 'Samantha', movie_name: 'Dookudu', points: 10 },
+        { clue_letters: 'DJ', hero_name: 'Allu Arjun', heroine_name: 'Pooja Hegde', movie_name: 'DJ', points: 10 }
+      ]
+    })
+  });
+  assert.strictEqual(importArrayRes.status, 200);
+  const importArrayData = await importArrayRes.json();
+  assert.strictEqual(importArrayData.count, 2, "Should import 2 questions from questions array");
+  console.log("✅ Imported 2 questions from pre-parsed JSON payload");
+
+  // Reorder Questions
+  const allQuestionsRes = await fetch(`${BASE_URL}/api/admin/questions`, {
+    headers: { 'Cookie': adminCookie }
+  });
+  const allQs = await allQuestionsRes.json();
+  if (allQs.length >= 2) {
+    const reversedIds = allQs.map(q => q.id).reverse();
+    const reorderRes = await fetch(`${BASE_URL}/api/admin/questions/reorder`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Cookie': adminCookie },
+      body: JSON.stringify({ orderedIds: reversedIds })
+    });
+    assert.strictEqual(reorderRes.status, 200);
+
+    const reorderedQsRes = await fetch(`${BASE_URL}/api/admin/questions`, {
+      headers: { 'Cookie': adminCookie }
+    });
+    const reorderedQs = await reorderedQsRes.json();
+    assert.strictEqual(reorderedQs[0].id, reversedIds[0], "First question should match new order");
+    console.log("✅ Question reordering verified successfully");
+  }
 
   // Reset Used questions
   const resetUsedRes = await fetch(`${BASE_URL}/api/admin/questions/reset-used`, {
@@ -218,7 +268,7 @@ async function runTests() {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       houseId: 'house_1',
-      loginCode: '1234',
+      loginCode: 'AAKASH28',
       studentName: 'Alex Tester',
       deviceId: 'dev_alex_123'
     })

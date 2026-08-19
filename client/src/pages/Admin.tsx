@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { socket } from '../socket';
 import { useNavigate } from 'react-router-dom';
 import { 
@@ -6,13 +6,19 @@ import {
   RotateCcw, Volume2, 
   Clock, LogOut, RefreshCw,
   LayoutDashboard, Database, Home, Edit2, Upload, Key, Eye, EyeOff,
-  Award, History, XCircle, CheckCircle
+  Award, History, XCircle, CheckCircle, Download, FileSpreadsheet,
+  Search, CheckCircle2, AlertCircle, Info, X,
+  ArrowUp, ArrowDown, Shuffle, GripVertical
 } from 'lucide-react';
 import { GlassCard } from '../components/ui/GlassCard';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { ThemeToggle } from '../components/ThemeToggle';
 import { HouseLogo } from '../components/HouseLogo';
+import { CsvImportModal } from '../components/CsvImportModal';
+import { downloadSampleCSV } from '../utils/csvHelper';
+import { ConfirmModal, type ConfirmModalConfig } from '../components/ui/ConfirmModal';
+import { ToastContainer, type ToastItem } from '../components/ui/ToastNotification';
 
 interface House {
   id: string;
@@ -31,6 +37,7 @@ interface Question {
   movie_name: string;
   points: number;
   used?: boolean;
+  order_index?: number;
 }
 
 interface GameState {
@@ -76,41 +83,79 @@ export default function Admin() {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [recentRounds, setRecentRounds] = useState<RecentRound[]>([]);
   const [deviceCounts, setDeviceCounts] = useState<Record<string, number>>({});
-  const [visiblePins, setVisiblePins] = useState<Record<string, boolean>>({});
-  const [editingPinId, setEditingPinId] = useState<string | null>(null);
-  const [customPin, setCustomPin] = useState('');
+  const [visibleCodes, setVisibleCodes] = useState<Record<string, boolean>>({});
+  const [editingCodeId, setEditingCodeId] = useState<string | null>(null);
+  const [customCode, setCustomCode] = useState('');
   const [revealAnswer, setRevealAnswer] = useState(false);
   const navigate = useNavigate();
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // CSV Import & Question Search State
+  const [isCsvModalOpen, setIsCsvModalOpen] = useState(false);
+  const [questionSearch, setQuestionSearch] = useState('');
+  const [importNotice, setImportNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [showCsvGuideCard, setShowCsvGuideCard] = useState(false);
 
   // Forms state
-  const [questionForm, setQuestionForm] = useState<Question>({ id: null, clue_letters: '', hero_name: '', heroine_name: '', movie_name: '', points: 10 });
+  const [questionForm, setQuestionForm] = useState<Question>({ id: null, clue_letters: '', hero_name: '', heroine_name: '', movie_name: '', points: 1 });
   const [houseForm, setHouseForm] = useState<{ id: string | null; name: string; color: string; icon: string; loginCode: string }>({ id: null, name: '', color: '#000000', icon: 'Circle', loginCode: '' });
 
+  // Custom UI Modals & Toasts
+  const [confirmModal, setConfirmModal] = useState<ConfirmModalConfig | null>(null);
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
+
+  const showToast = (message: string, type: 'success' | 'error' | 'warning' | 'info' = 'info', title?: string) => {
+    const id = 'toast_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+    setToasts(prev => [...prev, { id, message, type, title }]);
+  };
+
+  const dismissToast = (id: string) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
+  };
+
   const fetchData = () => {
-    fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/admin/houses', {
-      credentials: 'include',
-      headers: { ...getAuthHeaders() }
-    })
-      .then(res => res.json())
-      .then((data: House[]) => setHouses(data))
-      .catch(console.error);
+    const serverUrl = import.meta.env.VITE_SERVER_URL || 'http://localhost:3001';
+    const authHeaders = getAuthHeaders();
 
-    fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/admin/questions', {
+    fetch(serverUrl + '/api/admin/houses', {
       credentials: 'include',
-      headers: { ...getAuthHeaders() }
+      headers: { ...authHeaders }
     })
-      .then(res => res.json())
-      .then((data: Question[]) => setQuestions(data))
-      .catch(console.error);
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then((data: House[]) => {
+        if (Array.isArray(data)) setHouses(data);
+      })
+      .catch(err => console.error('[Admin] Error fetching houses:', err));
 
-    fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/admin/recent-rounds', {
+    fetch(serverUrl + '/api/admin/questions', {
       credentials: 'include',
-      headers: { ...getAuthHeaders() }
+      headers: { ...authHeaders }
     })
-      .then(res => res.json())
-      .then((data: RecentRound[]) => setRecentRounds(Array.isArray(data) ? data : []))
-      .catch(console.error);
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then((data: Question[]) => {
+        if (Array.isArray(data)) {
+          setQuestions(data);
+        }
+      })
+      .catch(err => console.error('[Admin] Error fetching questions:', err));
+
+    fetch(serverUrl + '/api/admin/recent-rounds', {
+      credentials: 'include',
+      headers: { ...authHeaders }
+    })
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then((data: RecentRound[]) => {
+        if (Array.isArray(data)) setRecentRounds(data);
+      })
+      .catch(err => console.error('[Admin] Error fetching recent rounds:', err));
   };
 
   useEffect(() => {
@@ -200,14 +245,21 @@ export default function Admin() {
 
       if (!res.ok) {
         if (data.error && (data.error.includes('No unused questions') || data.error.includes('No unused'))) {
-          if (confirm('All questions in the bank have been used!\n\nWould you like to reset all questions to unused status and load the next clue now?')) {
-            await resetUsedQuestions();
-            return startRound();
-          } else {
-            alert('No unused questions available. Please reset used status from Question Bank or add new questions.');
-          }
+          setConfirmModal({
+            isOpen: true,
+            title: 'All Questions Used',
+            message: 'All questions in the bank have been used in this session!\n\nWould you like to reset all questions to available status and immediately load the next question?',
+            confirmText: 'Reset & Start Clue',
+            cancelText: 'Cancel',
+            variant: 'primary',
+            icon: 'refresh',
+            onConfirm: async () => {
+              await resetUsedQuestions(true);
+              startRound();
+            }
+          });
         } else {
-          alert(data.error || 'Failed to start round');
+          showToast(data.error || 'Failed to start round', 'error');
         }
         return;
       }
@@ -227,7 +279,7 @@ export default function Admin() {
       fetchData();
     } catch (err) {
       console.error('[Admin] Error starting round:', err);
-      alert('Network error connecting to server');
+      showToast('Network error connecting to server', 'error');
     }
   };
 
@@ -260,23 +312,34 @@ export default function Admin() {
       });
       fetchData();
     } catch (e) {
-      alert('Error going idle');
+      showToast('Error setting game to idle state', 'error');
     }
   };
 
-  const resetLeaderboard = async () => {
-    if (!confirm('This will reset all house scores to 0. This cannot be undone. Are you sure?')) return;
-    try {
-      const res = await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/admin/reset-leaderboard', {
-        method: 'POST',
-        headers: { ...getAuthHeaders() },
-        credentials: 'include'
-      });
-      if (!res.ok) throw new Error('Request failed');
-      fetchData();
-    } catch(err) {
-      alert('Error resetting leaderboard');
-    }
+  const resetLeaderboard = () => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Reset Leaderboard Scores?',
+      message: 'This will reset all house scores back to 0. This action cannot be undone.\n\nAre you sure you want to proceed?',
+      confirmText: 'Reset Scores',
+      cancelText: 'Cancel',
+      variant: 'destructive',
+      icon: 'trash',
+      onConfirm: async () => {
+        try {
+          const res = await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/admin/reset-leaderboard', {
+            method: 'POST',
+            headers: { ...getAuthHeaders() },
+            credentials: 'include'
+          });
+          if (!res.ok) throw new Error('Request failed');
+          fetchData();
+          showToast('Leaderboard scores have been reset to 0.', 'success', 'Scores Reset');
+        } catch (err) {
+          showToast('Error resetting leaderboard', 'error');
+        }
+      }
+    });
   };
 
   // --- Questions Actions ---
@@ -294,51 +357,188 @@ export default function Admin() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to save question');
       
-      setQuestionForm({ id: null, clue_letters: '', hero_name: '', heroine_name: '', movie_name: '', points: 10 });
+      const wasEdit = Boolean(questionForm.id);
+      setQuestionForm({ id: null, clue_letters: '', hero_name: '', heroine_name: '', movie_name: '', points: 1 });
       fetchData();
-      alert('Question saved successfully');
+      showToast(wasEdit ? 'Question updated successfully!' : 'Question added to Question Bank!', 'success');
     } catch (err: any) {
-      alert(err.message || 'Error occurred');
+      showToast(err.message || 'Error saving question', 'error');
     }
   };
 
-  const deleteQuestion = async (id?: string | null) => {
+  const deleteQuestion = (id?: string | null, clue?: string) => {
     if (!id) return;
-    if (!confirm('Delete this question?')) return;
-    await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + `/api/admin/questions/${id}`, {
-      method: 'DELETE',
-      headers: { ...getAuthHeaders() },
-      credentials: 'include'
+    setConfirmModal({
+      isOpen: true,
+      title: 'Delete Question?',
+      message: `Are you sure you want to remove "${clue || 'this question'}" from the Question Bank?`,
+      confirmText: 'Delete Question',
+      cancelText: 'Cancel',
+      variant: 'destructive',
+      icon: 'trash',
+      onConfirm: async () => {
+        try {
+          const res = await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + `/api/admin/questions/${id}`, {
+            method: 'DELETE',
+            headers: { ...getAuthHeaders() },
+            credentials: 'include'
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || 'Failed to delete question');
+          
+          fetchData();
+          showToast('Question deleted from Question Bank', 'success');
+        } catch (err: any) {
+          showToast(err.message || 'Failed to delete question', 'error');
+        }
+      }
     });
+  };
+
+  const resetUsedQuestions = async (silent = false) => {
+    if (silent) {
+      await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/admin/questions/reset-used', {
+        method: 'POST',
+        headers: { ...getAuthHeaders() },
+        credentials: 'include'
+      });
+      fetchData();
+      return;
+    }
+
+    setConfirmModal({
+      isOpen: true,
+      title: 'Reset Questions Status?',
+      message: 'All questions currently marked as "Used" will be reset to "Available" for upcoming rounds.',
+      confirmText: 'Reset Used Status',
+      cancelText: 'Cancel',
+      variant: 'primary',
+      icon: 'refresh',
+      onConfirm: async () => {
+        try {
+          await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/admin/questions/reset-used', {
+            method: 'POST',
+            headers: { ...getAuthHeaders() },
+            credentials: 'include'
+          });
+          fetchData();
+          showToast('All questions reset to available status!', 'success');
+        } catch (err) {
+          showToast('Failed to reset questions', 'error');
+        }
+      }
+    });
+  };
+
+  const handleCsvImportSuccess = (importedCount: number, skippedCount: number) => {
+    let msg = `Successfully imported ${importedCount} question${importedCount !== 1 ? 's' : ''} into the Question Bank!`;
+    if (skippedCount > 0) {
+      msg += ` (${skippedCount} row${skippedCount !== 1 ? 's were' : ' was'} skipped due to missing required fields)`;
+    }
+    showToast(msg, 'success', 'CSV Import Complete');
     fetchData();
   };
 
-  const resetUsedQuestions = async () => {
-    if (!confirm('Reset all questions to unused?')) return;
-    await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/admin/questions/reset-used', {
-      method: 'POST',
-      headers: { ...getAuthHeaders() },
-      credentials: 'include'
-    });
-    fetchData();
-  };
+  // Reorder question order up or down
+  const moveQuestion = async (currentIndex: number, direction: 'up' | 'down') => {
+    const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+    if (targetIndex < 0 || targetIndex >= questions.length) return;
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = async (ev) => {
-      const csvData = ev.target?.result;
-      await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/admin/questions/import', {
+    const newQuestions = [...questions];
+    const [moved] = newQuestions.splice(currentIndex, 1);
+    newQuestions.splice(targetIndex, 0, moved);
+
+    // Optimistic UI update
+    setQuestions(newQuestions);
+
+    try {
+      const orderedIds = newQuestions.map(q => q.id).filter(Boolean);
+      await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/admin/questions/reorder', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
         credentials: 'include',
-        body: JSON.stringify({ csvData })
+        body: JSON.stringify({ orderedIds })
       });
+    } catch (err) {
+      console.error('Failed to save question order:', err);
       fetchData();
-    };
-    reader.readAsText(file);
-    e.target.value = ''; // reset
+    }
+  };
+
+  // Drag and Drop handlers for reordering questions
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+
+  const handleDragStart = (e: React.DragEvent, index: number) => {
+    setDraggedIndex(index);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragOver = (e: React.DragEvent, _index?: number) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  };
+
+  const handleDrop = async (e: React.DragEvent, dropIndex: number) => {
+    e.preventDefault();
+    if (draggedIndex === null || draggedIndex === dropIndex) {
+      setDraggedIndex(null);
+      return;
+    }
+
+    const newQuestions = [...questions];
+    const [moved] = newQuestions.splice(draggedIndex, 1);
+    newQuestions.splice(dropIndex, 0, moved);
+
+    setQuestions(newQuestions);
+    setDraggedIndex(null);
+
+    try {
+      const orderedIds = newQuestions.map(q => q.id).filter(Boolean);
+      await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/admin/questions/reorder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        credentials: 'include',
+        body: JSON.stringify({ orderedIds })
+      });
+      showToast('Question order updated!', 'success');
+    } catch (err) {
+      console.error('Failed to save question order:', err);
+      fetchData();
+    }
+  };
+
+  // Shuffle all questions randomly
+  const shuffleQuestions = () => {
+    if (questions.length <= 1) return;
+
+    setConfirmModal({
+      isOpen: true,
+      title: 'Shuffle Question Bank Order?',
+      message: 'This will randomly reorder all questions in the bank. Game rounds will follow this newly shuffled sequence.',
+      confirmText: 'Shuffle Questions',
+      cancelText: 'Cancel',
+      variant: 'primary',
+      icon: 'shuffle',
+      onConfirm: async () => {
+        const shuffled = [...questions].sort(() => Math.random() - 0.5);
+        setQuestions(shuffled);
+
+        try {
+          const orderedIds = shuffled.map(q => q.id).filter(Boolean);
+          await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/admin/questions/reorder', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+            credentials: 'include',
+            body: JSON.stringify({ orderedIds })
+          });
+          showToast('Question Bank sequence randomly shuffled!', 'success', 'Shuffled');
+        } catch (err) {
+          console.error('Failed to shuffle questions:', err);
+          fetchData();
+          showToast('Failed to save shuffled order', 'error');
+        }
+      }
+    });
   };
 
   // --- Houses Actions ---
@@ -346,58 +546,82 @@ export default function Admin() {
     e.preventDefault();
     const method = houseForm.id ? 'PUT' : 'POST';
     const url = houseForm.id ? `/api/admin/houses/${houseForm.id}` : '/api/admin/houses';
-    await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + url, {
-      method,
-      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-      credentials: 'include',
-      body: JSON.stringify(houseForm)
-    });
-    setHouseForm({ id: null, name: '', color: '#000000', icon: 'Circle', loginCode: '' });
-    fetchData();
-  };
-
-  const deleteHouse = async (id: string) => {
-    if (!confirm('Delete this house?')) return;
-    await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + `/api/admin/houses/${id}`, {
-      method: 'DELETE',
-      headers: { ...getAuthHeaders() },
-      credentials: 'include'
-    });
-    fetchData();
-  };
-
-  const regenerateCode = async (id: string) => {
-    if (!confirm('Regenerate PIN for this house? Students will need the new PIN to join.')) return;
-    await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + `/api/admin/houses/${id}/regenerate-code`, {
-      method: 'POST',
-      headers: { ...getAuthHeaders() },
-      credentials: 'include'
-    });
-    fetchData();
-  };
-
-  const saveCustomPin = async (id: string) => {
-    if (!customPin || customPin.length < 4 || /\s/.test(customPin)) {
-      return alert("PIN must be at least 4 characters with no spaces.");
-    }
-    if (!confirm('This will invalidate the current PIN — students using it will need the new code. Proceed?')) return;
-    
     try {
-      const res = await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + `/api/admin/houses/${id}/custom-code`, {
-        method: 'POST',
+      await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + url, {
+        method,
         headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
         credentials: 'include',
-        body: JSON.stringify({ loginCode: customPin })
+        body: JSON.stringify(houseForm)
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-      
-      setEditingPinId(null);
-      setCustomPin('');
+      const wasEdit = Boolean(houseForm.id);
+      setHouseForm({ id: null, name: '', color: '#000000', icon: 'Circle', loginCode: '' });
       fetchData();
-    } catch (e: any) {
-      alert(e.message || 'Error occurred');
+      showToast(wasEdit ? 'House details updated!' : 'New house created!', 'success');
+    } catch (err) {
+      showToast('Error saving house', 'error');
     }
+  };
+
+  const deleteHouse = (id: string, houseName?: string) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Delete House?',
+      message: `Are you sure you want to delete ${houseName || 'this house'}? Any assigned student devices will be disconnected.`,
+      confirmText: 'Delete House',
+      cancelText: 'Cancel',
+      variant: 'destructive',
+      icon: 'trash',
+      onConfirm: async () => {
+        try {
+          await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + `/api/admin/houses/${id}`, {
+            method: 'DELETE',
+            headers: { ...getAuthHeaders() },
+            credentials: 'include'
+          });
+          fetchData();
+          showToast('House deleted successfully', 'success');
+        } catch (err) {
+          showToast('Failed to delete house', 'error');
+        }
+      }
+    });
+  };
+
+  const saveCustomCode = async (id: string, houseName?: string) => {
+    const clean = customCode.trim().toUpperCase();
+    if (!clean || clean.length < 3 || /\s/.test(clean)) {
+      showToast("Code must be at least 3 characters with no spaces.", "warning", "Invalid Code");
+      return;
+    }
+    
+    setConfirmModal({
+      isOpen: true,
+      title: 'Confirm House Code?',
+      message: `Set login code "${clean}" for ${houseName || 'this house'}?\n\nStudents will need this new code to enter the game.`,
+      confirmText: 'Confirm Code',
+      cancelText: 'Cancel',
+      variant: 'primary',
+      icon: 'key',
+      onConfirm: async () => {
+        try {
+          const res = await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + `/api/admin/houses/${id}/custom-code`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+            credentials: 'include',
+            body: JSON.stringify({ loginCode: clean })
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error);
+          
+          setEditingCodeId(null);
+          setCustomCode('');
+          fetchData();
+          showToast('House Code updated successfully!', 'success');
+        } catch (e: any) {
+          showToast(e.message || 'Error updating Code', 'error');
+        }
+      }
+    });
   };
 
   const logout = async () => {
@@ -771,22 +995,175 @@ export default function Admin() {
         {/* QUESTIONS TAB */}
         {activeTab === 'questions' && (
           <div className="space-y-8 animate-in">
-            <div className="flex justify-between items-center">
-              <h2 className="text-4xl font-display font-bold">Question Bank</h2>
-              <div className="flex gap-4">
-                <Button variant="secondary" onClick={resetUsedQuestions} className="gap-2">
-                  <RefreshCw size={18} /> Reset Used
+            {/* Status / Import Notification */}
+            {importNotice && (
+              <div className={`p-4 rounded-xl flex items-center justify-between gap-3 text-sm animate-in shadow-lg ${
+                importNotice.type === 'success' 
+                  ? 'bg-emerald-500/15 border border-emerald-500/40 text-emerald-300' 
+                  : 'bg-red-500/15 border border-red-500/40 text-red-300'
+              }`}>
+                <div className="flex items-center gap-2.5">
+                  {importNotice.type === 'success' ? (
+                    <CheckCircle2 size={20} className="shrink-0 text-emerald-400" />
+                  ) : (
+                    <AlertCircle size={20} className="shrink-0 text-red-400" />
+                  )}
+                  <span className="font-medium">{importNotice.message}</span>
+                </div>
+                <button 
+                  onClick={() => setImportNotice(null)} 
+                  className="p-1 hover:bg-white/10 rounded-lg transition-colors text-slate-400 hover:text-white"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            )}
+
+            {/* Header with Title & Action Buttons */}
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-3">
+                  <h2 className="text-4xl font-display font-bold">Question Bank</h2>
+                  <span className="px-3 py-1 rounded-full bg-brand/20 text-brand border border-brand/30 text-xs font-bold">
+                    {(Array.isArray(questions) ? questions.length : 0)} Total
+                  </span>
+                </div>
+                <p className="text-xs text-secondary mt-1">
+                  Manage game clues, import question sets via CSV, or download template files.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2.5">
+                <Button 
+                  variant="secondary" 
+                  onClick={shuffleQuestions}
+                  disabled={!Array.isArray(questions) || questions.length <= 1}
+                  className="gap-2 text-xs py-2 px-3.5"
+                  title="Randomly shuffle the question playing sequence"
+                >
+                  <Shuffle size={16} /> Shuffle Order
                 </Button>
-                <input type="file" accept=".csv" className="hidden" ref={fileInputRef} onChange={handleFileUpload} />
-                <Button variant="secondary" onClick={() => fileInputRef.current?.click()} className="gap-2">
-                  <Upload size={18} /> Import CSV
+
+                <Button 
+                  variant="secondary" 
+                  onClick={() => setShowCsvGuideCard(!showCsvGuideCard)} 
+                  className="gap-2 text-xs py-2 px-3.5"
+                  title="View required CSV format & columns"
+                >
+                  <Info size={16} className="text-brand-light" />
+                  {showCsvGuideCard ? 'Hide CSV Format' : 'CSV Format Info'}
+                </Button>
+
+                <Button 
+                  variant="secondary" 
+                  onClick={downloadSampleCSV} 
+                  className="gap-2 text-xs py-2 px-3.5"
+                  title="Download ready-to-use CSV template"
+                >
+                  <Download size={16} /> Download Template
+                </Button>
+
+                <Button 
+                  variant="primary" 
+                  onClick={() => setIsCsvModalOpen(true)} 
+                  className="gap-2 text-xs py-2 px-4 shadow-lg shadow-brand/20"
+                >
+                  <Upload size={16} /> Import CSV
+                </Button>
+
+                <Button 
+                  variant="secondary" 
+                  onClick={() => resetUsedQuestions(false)} 
+                  className="gap-2 text-xs py-2 px-3.5"
+                >
+                  <RefreshCw size={16} /> Reset Used
                 </Button>
               </div>
             </div>
 
+            {/* Collapsible CSV Format Specification Guide */}
+            {showCsvGuideCard && (
+              <div className="p-5 rounded-2xl bg-indigo-950/40 border border-indigo-500/30 space-y-4 animate-in">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-2 text-indigo-300 font-bold text-sm">
+                    <FileSpreadsheet size={18} className="text-brand-light" />
+                    <span>CSV Question Import Format Specifications</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button 
+                      onClick={downloadSampleCSV} 
+                      className="text-xs text-indigo-300 hover:text-white underline inline-flex items-center gap-1 font-semibold"
+                    >
+                      <Download size={13} /> Download Sample CSV
+                    </button>
+                    <button 
+                      onClick={() => setShowCsvGuideCard(false)} 
+                      className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-white/10 transition-colors"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3 text-xs">
+                  <div className="p-3 rounded-xl bg-black/30 border border-white/10 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono font-bold text-brand-light">1. Clue</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 font-bold">Required</span>
+                    </div>
+                    <p className="text-slate-300 text-[11px]">Initials shown to students</p>
+                    <p className="text-slate-500 font-mono text-[10px]">e.g. MSD, BB, PK</p>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-black/30 border border-white/10 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono font-bold text-brand-light">2. Hero</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 font-bold">Required</span>
+                    </div>
+                    <p className="text-slate-300 text-[11px]">Lead Actor name</p>
+                    <p className="text-slate-500 font-mono text-[10px]">e.g. Prabhas, Allu Arjun</p>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-black/30 border border-white/10 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono font-bold text-brand-light">3. Heroine</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 font-bold">Required</span>
+                    </div>
+                    <p className="text-slate-300 text-[11px]">Lead Actress name</p>
+                    <p className="text-slate-500 font-mono text-[10px]">e.g. Anushka, Samantha</p>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-black/30 border border-white/10 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono font-bold text-brand-light">4. Movie</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 font-bold">Required</span>
+                    </div>
+                    <p className="text-slate-300 text-[11px]">Movie Title</p>
+                    <p className="text-slate-500 font-mono text-[10px]">e.g. Baahubali, Dookudu</p>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-black/30 border border-white/10 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono font-bold text-brand-light">5. Points</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-bold">Optional</span>
+                    </div>
+                    <p className="text-slate-300 text-[11px]">Default: 1 point</p>
+                    <p className="text-slate-500 font-mono text-[10px]">e.g. 1, 2, 5</p>
+                  </div>
+                </div>
+
+                <div className="text-[11px] text-slate-400">
+                  <strong>Header column aliases supported:</strong> <code>clue_letters</code>, <code>hero_name</code>, <code>heroine_name</code>, <code>movie_name</code>, <code>actor</code>, <code>actress</code>, <code>film</code>, <code>score</code>.
+                </div>
+              </div>
+            )}
+
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+              {/* Add/Edit Form */}
               <GlassCard className="lg:col-span-4 h-fit">
-                <h3 className="font-bold mb-6 flex items-center gap-2 text-lg"><Plus size={20}/> {questionForm.id ? 'Edit' : 'Add'} Question</h3>
+                <h3 className="font-bold mb-6 flex items-center gap-2 text-lg">
+                  <Plus size={20}/> {questionForm.id ? 'Edit' : 'Add'} Question
+                </h3>
                 <form onSubmit={saveQuestion} className="space-y-5">
                   <Input label="Clue (e.g. MSD)" required value={questionForm.clue_letters} onChange={e=>setQuestionForm({...questionForm, clue_letters: e.target.value})} />
                   <Input label="Hero" required value={questionForm.hero_name} onChange={e=>setQuestionForm({...questionForm, hero_name: e.target.value})} />
@@ -796,44 +1173,224 @@ export default function Admin() {
                   
                   <div className="flex gap-3 pt-4 border-t border-border-glass">
                     <Button type="submit" className="flex-1">Save</Button>
-                    {questionForm.id && <Button variant="secondary" type="button" onClick={() => setQuestionForm({ id: null, clue_letters: '', hero_name: '', heroine_name: '', movie_name: '', points: 10 })}>Cancel</Button>}
+                    {questionForm.id && <Button variant="secondary" type="button" onClick={() => setQuestionForm({ id: null, clue_letters: '', hero_name: '', heroine_name: '', movie_name: '', points: 1 })}>Cancel</Button>}
                   </div>
                 </form>
               </GlassCard>
               
-              <GlassCard className="lg:col-span-8 overflow-hidden p-0">
+              {/* Questions Table with Search & Reordering */}
+              <GlassCard className="lg:col-span-8 overflow-hidden p-0 flex flex-col">
+                {/* Search Bar Header */}
+                <div className="p-4 bg-black/20 border-b border-border-glass flex items-center justify-between gap-4 flex-wrap">
+                  <div className="relative flex-1 min-w-[200px] max-w-sm">
+                    <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-secondary" />
+                    <input 
+                      type="text" 
+                      placeholder="Search questions by clue, hero, movie..." 
+                      value={questionSearch}
+                      onChange={(e) => setQuestionSearch(e.target.value)}
+                      className="w-full pl-9 pr-8 py-2 bg-black/20 dark:bg-black/40 border border-border-glass rounded-xl text-xs text-primary focus:outline-none focus:border-brand transition-colors"
+                    />
+                    {questionSearch && (
+                      <button 
+                        onClick={() => setQuestionSearch('')} 
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-secondary hover:text-primary"
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-3 text-xs text-secondary">
+                    {!questionSearch && (
+                      <span className="hidden sm:inline-block text-[11px] text-slate-400 bg-black/20 px-2.5 py-1 rounded-lg border border-border-glass">
+                        Drag rows or use arrow buttons to reorder
+                      </span>
+                    )}
+                    <span>
+                      Showing <span className="text-primary font-bold">
+                        {(Array.isArray(questions) ? questions : []).filter(q => {
+                          if (!questionSearch.trim()) return true;
+                          const s = questionSearch.toLowerCase();
+                          return (
+                            (q.clue_letters || '').toLowerCase().includes(s) ||
+                            (q.hero_name || '').toLowerCase().includes(s) ||
+                            (q.heroine_name || '').toLowerCase().includes(s) ||
+                            (q.movie_name || '').toLowerCase().includes(s)
+                          );
+                        }).length}
+                      </span> of <span className="text-primary font-bold">{(Array.isArray(questions) ? questions.length : 0)}</span>
+                    </span>
+                  </div>
+                </div>
+
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left text-sm min-w-[600px]">
+                  <table className="w-full text-left text-sm min-w-[650px]">
                     <thead className="bg-black/20 text-secondary uppercase tracking-widest text-xs border-b border-border-glass">
                       <tr>
-                        <th className="p-6 font-bold">Clue</th>
-                        <th className="p-6 font-bold">Answers</th>
-                        <th className="p-6 font-bold text-center">Pts</th>
-                        <th className="p-6 font-bold text-center">Used</th>
-                        <th className="p-6 font-bold text-right">Actions</th>
+                        <th className="py-4 px-3 w-12 text-center font-bold">#</th>
+                        <th className="py-4 px-3 w-20 text-center font-bold">Order</th>
+                        <th className="py-4 px-4 font-bold">Clue</th>
+                        <th className="py-4 px-4 font-bold">Answers</th>
+                        <th className="py-4 px-3 font-bold text-center">Pts</th>
+                        <th className="py-4 px-3 font-bold text-center">Used</th>
+                        <th className="py-4 px-4 font-bold text-right">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border-glass/50">
-                      {(Array.isArray(questions) ? questions : []).map(q => (
-                        <tr key={q.id || Math.random()} className="hover:bg-white/5 transition-colors">
-                          <td className="p-6 font-display font-bold text-2xl">{q.clue_letters}</td>
-                          <td className="p-6">
-                             <div className="text-secondary font-bold">H: <span className="text-primary font-normal">{q.hero_name}</span></div>
-                             <div className="text-secondary font-bold">H: <span className="text-primary font-normal">{q.heroine_name}</span></div>
-                             <div className="text-secondary font-bold">M: <span className="text-primary font-normal">{q.movie_name}</span></div>
-                          </td>
-                          <td className="p-6 text-center text-brand font-bold text-lg">{q.points}</td>
-                          <td className="p-6 text-center">
-                            {q.used ? <span className="bg-white/10 text-secondary px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider border border-border-glass">Used</span> : <span className="bg-green-500/20 text-green-600 dark:text-green-400 border border-green-500/30 px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider">Available</span>}
-                          </td>
-                          <td className="p-6 text-right">
-                            <div className="flex gap-2 justify-end">
-                              <button onClick={() => setQuestionForm(q)} className="p-2.5 bg-black/20 text-secondary hover:text-primary hover:bg-white/10 rounded-xl transition-all"><Edit2 size={18} /></button>
-                              <button onClick={() => deleteQuestion(q.id)} className="p-2.5 bg-black/20 text-red-500/70 hover:text-red-500 hover:bg-red-500/10 rounded-xl transition-all"><Trash2 size={18} /></button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
+                      {(() => {
+                        const rawQuestions = Array.isArray(questions) ? questions : [];
+                        const isFiltered = Boolean(questionSearch.trim());
+                        
+                        const filtered = rawQuestions.map((q, originalIdx) => ({ q, originalIdx })).filter(({ q }) => {
+                          if (!isFiltered) return true;
+                          const s = questionSearch.toLowerCase();
+                          return (
+                            (q.clue_letters || '').toLowerCase().includes(s) ||
+                            (q.hero_name || '').toLowerCase().includes(s) ||
+                            (q.heroine_name || '').toLowerCase().includes(s) ||
+                            (q.movie_name || '').toLowerCase().includes(s)
+                          );
+                        });
+
+                        if (filtered.length === 0) {
+                          return (
+                            <tr>
+                              <td colSpan={7} className="p-12 text-center text-secondary">
+                                <FileSpreadsheet size={36} className="mx-auto mb-3 opacity-30 text-brand" />
+                                {questionSearch ? (
+                                  <div>
+                                    <p className="font-semibold text-primary">No questions matching "{questionSearch}"</p>
+                                    <p className="text-xs mt-1">Try searching for a different actor, movie, or clue.</p>
+                                  </div>
+                                ) : (
+                                  <div>
+                                    <p className="font-semibold text-primary">No questions in the bank yet</p>
+                                    <p className="text-xs mt-1 mb-4">Add your first question manually or import a batch via CSV.</p>
+                                    <Button 
+                                      variant="primary" 
+                                      onClick={() => setIsCsvModalOpen(true)}
+                                      className="text-xs py-2 px-4 gap-2"
+                                    >
+                                      <Upload size={14} /> Import CSV Questions
+                                    </Button>
+                                  </div>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        }
+
+                        return filtered.map(({ q, originalIdx }) => {
+                          const isFirst = originalIdx === 0;
+                          const isLast = originalIdx === rawQuestions.length - 1;
+                          const isDragging = draggedIndex === originalIdx;
+
+                          return (
+                            <tr 
+                              key={q.id || Math.random()} 
+                              draggable={!isFiltered}
+                              onDragStart={(e) => handleDragStart(e, originalIdx)}
+                              onDragOver={(e) => handleDragOver(e, originalIdx)}
+                              onDrop={(e) => handleDrop(e, originalIdx)}
+                              className={`transition-all ${
+                                isDragging 
+                                  ? 'opacity-40 bg-brand/10 border-dashed border-2 border-brand' 
+                                  : 'hover:bg-white/5'
+                              }`}
+                            >
+                              {/* Sequence Badge */}
+                              <td className="py-4 px-3 text-center">
+                                <span className="font-mono text-xs px-2 py-1 rounded-md bg-black/30 border border-border-glass text-secondary font-bold">
+                                  #{originalIdx + 1}
+                                </span>
+                              </td>
+
+                              {/* Reorder Controls */}
+                              <td className="py-4 px-3 text-center">
+                                <div className="flex items-center justify-center gap-1">
+                                  {!isFiltered && (
+                                    <div 
+                                      className="cursor-grab active:cursor-grabbing p-1 text-slate-500 hover:text-slate-300 transition-colors"
+                                      title="Drag to reorder"
+                                    >
+                                      <GripVertical size={16} />
+                                    </div>
+                                  )}
+                                  <div className="flex flex-col gap-0.5">
+                                    <button 
+                                      onClick={() => moveQuestion(originalIdx, 'up')}
+                                      disabled={isFirst || isFiltered}
+                                      className="p-1 rounded bg-black/20 hover:bg-white/15 text-secondary hover:text-primary disabled:opacity-20 disabled:cursor-not-allowed transition-all"
+                                      title="Move Up"
+                                    >
+                                      <ArrowUp size={12} />
+                                    </button>
+                                    <button 
+                                      onClick={() => moveQuestion(originalIdx, 'down')}
+                                      disabled={isLast || isFiltered}
+                                      className="p-1 rounded bg-black/20 hover:bg-white/15 text-secondary hover:text-primary disabled:opacity-20 disabled:cursor-not-allowed transition-all"
+                                      title="Move Down"
+                                    >
+                                      <ArrowDown size={12} />
+                                    </button>
+                                  </div>
+                                </div>
+                              </td>
+
+                              {/* Clue */}
+                              <td className="py-4 px-4 font-display font-bold text-xl text-brand-light">
+                                {q.clue_letters}
+                              </td>
+
+                              {/* Answers */}
+                              <td className="py-4 px-4">
+                                 <div className="text-secondary font-bold text-xs">Hero: <span className="text-primary font-normal">{q.hero_name}</span></div>
+                                 <div className="text-secondary font-bold text-xs">Heroine: <span className="text-primary font-normal">{q.heroine_name}</span></div>
+                                 <div className="text-secondary font-bold text-xs">Movie: <span className="text-primary font-normal">{q.movie_name}</span></div>
+                              </td>
+
+                              {/* Points */}
+                              <td className="py-4 px-3 text-center text-brand font-bold text-base">
+                                {q.points}
+                              </td>
+
+                              {/* Used / Available */}
+                              <td className="py-4 px-3 text-center">
+                                {q.used ? (
+                                  <span className="bg-white/10 text-secondary px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider border border-border-glass">
+                                    Used
+                                  </span>
+                                ) : (
+                                  <span className="bg-green-500/20 text-green-600 dark:text-green-400 border border-green-500/30 px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider">
+                                    Available
+                                  </span>
+                                )}
+                              </td>
+
+                              {/* Actions */}
+                              <td className="py-4 px-4 text-right">
+                                <div className="flex gap-2 justify-end">
+                                  <button 
+                                    onClick={() => setQuestionForm(q)} 
+                                    className="p-2 bg-black/20 text-secondary hover:text-primary hover:bg-white/10 rounded-xl transition-all" 
+                                    title="Edit Question"
+                                  >
+                                    <Edit2 size={16} />
+                                  </button>
+                                  <button 
+                                    onClick={() => deleteQuestion(q.id, q.clue_letters)} 
+                                    className="p-2 bg-black/20 text-red-500/70 hover:text-red-500 hover:bg-red-500/10 rounded-xl transition-all" 
+                                    title="Delete Question"
+                                  >
+                                    <Trash2 size={16} />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        });
+                      })()}
                     </tbody>
                   </table>
                 </div>
@@ -858,7 +1415,7 @@ export default function Admin() {
                     <input type="color" value={houseForm.color} onChange={e=>setHouseForm({...houseForm, color: e.target.value})} className="h-[52px] w-full bg-black/10 dark:bg-black/30 rounded-xl cursor-pointer border border-border-glass" />
                   </div>
 
-                  {!houseForm.id && <Input label="Login PIN (e.g. 1234)" type="password" required value={houseForm.loginCode} onChange={e=>setHouseForm({...houseForm, loginCode: e.target.value})} />}
+                  {!houseForm.id && <Input label="Login Code (e.g. AAKASH28)" type="text" required value={houseForm.loginCode} onChange={e=>setHouseForm({...houseForm, loginCode: e.target.value.toUpperCase()})} />}
                   
                   <div className="flex gap-3 pt-4 border-t border-border-glass">
                     <Button type="submit" className="flex-1">Save</Button>
@@ -869,49 +1426,99 @@ export default function Admin() {
 
               <div className="lg:col-span-8 space-y-6">
                 {houses.map(h => (
-                  <GlassCard key={h.id} className="flex flex-col md:flex-row items-start md:items-center justify-between p-4 sm:p-6 gap-6 hover:bg-white/5">
-                    <div className="flex items-center gap-6">
+                  <GlassCard key={h.id} className="flex flex-col md:flex-row items-start md:items-center justify-between p-4 sm:p-6 gap-6 hover:bg-white/5 transition-all">
+                    <div className="flex items-center gap-5 sm:gap-6 flex-1 min-w-0">
                       <HouseLogo name={h.name} color={h.color} icon={h.icon} size="xl" />
-                      <div className="flex-1 overflow-hidden">
+                      <div className="flex-1 min-w-0">
                         <h3 className="text-2xl sm:text-3xl font-bold font-display text-primary truncate">{h.name}</h3>
-                        <div className="flex flex-wrap items-center gap-2 sm:gap-4 mt-3 text-xs sm:text-sm text-secondary font-bold uppercase tracking-wider">
-                           {editingPinId === h.id ? (
-                             <div className="flex items-center gap-2 bg-black/20 border border-border-glass px-3 py-1.5 rounded-lg backdrop-blur-sm">
-                               <input type={visiblePins[h.id] ? "text" : "password"} value={customPin} onChange={e => setCustomPin(e.target.value)} placeholder="New PIN" className="bg-transparent border-none outline-none text-primary w-24 font-mono tracking-widest text-sm" autoFocus />
-                               <button onClick={() => setVisiblePins(prev => ({...prev, [h.id]: !prev[h.id]}))} className="text-muted hover:text-primary transition-colors">
-                                 {visiblePins[h.id] ? <EyeOff size={16}/> : <Eye size={16}/>}
+                        <div className="flex flex-wrap items-center gap-2 sm:gap-3 mt-3 text-xs sm:text-sm text-secondary font-bold uppercase tracking-wider">
+                           {editingCodeId === h.id ? (
+                             <div className="flex items-center gap-2 bg-black/30 border border-brand/40 px-3 py-1.5 rounded-xl backdrop-blur-sm">
+                               <Key size={15} className="text-brand shrink-0" />
+                               <input 
+                                 type={visibleCodes[h.id] ? "text" : "password"} 
+                                 value={customCode} 
+                                 onChange={e => setCustomCode(e.target.value.toUpperCase())} 
+                                 placeholder="NEW CODE" 
+                                 className="bg-transparent border-none outline-none text-primary font-mono tracking-widest text-sm w-28 uppercase font-bold" 
+                                 autoFocus 
+                               />
+                               <button 
+                                 type="button"
+                                 onClick={() => setVisibleCodes(prev => ({...prev, [h.id]: !prev[h.id]}))} 
+                                 className="text-muted hover:text-primary transition-colors"
+                                 title={visibleCodes[h.id] ? "Hide Code" : "Show Code"}
+                               >
+                                 {visibleCodes[h.id] ? <EyeOff size={15}/> : <Eye size={15}/>}
                                </button>
-                               <div className="h-4 w-px bg-border-glass mx-1"></div>
-                               <button onClick={() => saveCustomPin(h.id)} className="text-green-500 hover:text-green-400 transition-colors"><CheckCircle size={18}/></button>
-                               <button onClick={() => { setEditingPinId(null); setCustomPin(''); }} className="text-red-500 hover:text-red-400 transition-colors"><XCircle size={18}/></button>
                               </div>
                            ) : (
-                             <div className="flex items-center gap-2 bg-black/20 border border-border-glass px-3 py-1.5 rounded-lg backdrop-blur-sm">
-                               <Key size={16}/> 
-                               <span className="font-mono tracking-widest">{visiblePins[h.id] ? (h.login_code || '****') : '****'}</span>
-                               <button onClick={() => setVisiblePins(prev => ({...prev, [h.id]: !prev[h.id]}))} className="ml-2 text-muted hover:text-primary transition-colors">
-                                 {visiblePins[h.id] ? <EyeOff size={16}/> : <Eye size={16}/>}
+                             <div className="flex items-center gap-2 bg-black/20 border border-border-glass px-3 py-1.5 rounded-xl backdrop-blur-sm">
+                               <Key size={15} className="text-secondary shrink-0" /> 
+                               <span className="font-mono tracking-widest font-bold text-primary">
+                                 {visibleCodes[h.id] ? (h.login_code || '••••••••') : '••••••••'}
+                               </span>
+                               <button 
+                                 type="button"
+                                 onClick={() => setVisibleCodes(prev => ({...prev, [h.id]: !prev[h.id]}))} 
+                                 className="ml-1 text-muted hover:text-primary transition-colors"
+                                 title={visibleCodes[h.id] ? "Hide Code" : "Show Code"}
+                               >
+                                 {visibleCodes[h.id] ? <EyeOff size={15}/> : <Eye size={15}/>}
                                </button>
                               </div>
                            )}
-                           <div className="flex items-center gap-2 bg-black/20 border border-border-glass px-3 py-1.5 rounded-lg backdrop-blur-sm">
+                           <div className="flex items-center gap-2 bg-black/20 border border-border-glass px-3 py-1.5 rounded-xl backdrop-blur-sm">
                              <span className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse-subtle shadow-[0_0_8px_rgba(34,197,94,0.5)]"></span> 
-                             <span className="text-primary">{deviceCounts[h.id] || 0}</span> Online
+                             <span className="text-primary font-bold">{deviceCounts[h.id] || 0}</span> Online
                            </div>
                         </div>
                       </div>
                     </div>
                     
-                    <div className="flex flex-col gap-3 w-full md:w-auto">
+                    <div className="flex flex-col gap-3 w-full md:w-auto shrink-0">
                       <div className="flex gap-2 justify-end">
-                        <button onClick={() => setHouseForm({id: h.id, name: h.name, color: h.color, icon: h.icon, loginCode: h.login_code || ''})} className="p-3 bg-black/20 hover:bg-white/10 text-secondary hover:text-primary rounded-xl transition-all border border-border-glass"><Edit2 size={18}/></button>
-                        <button onClick={() => deleteHouse(h.id)} className="p-3 bg-black/20 hover:bg-red-500/20 text-red-500/70 hover:text-red-500 rounded-xl transition-all border border-border-glass"><Trash2 size={18}/></button>
+                        <button 
+                          onClick={() => setHouseForm({id: h.id, name: h.name, color: h.color, icon: h.icon, loginCode: h.login_code || ''})} 
+                          className="p-2.5 bg-black/20 hover:bg-white/10 text-secondary hover:text-primary rounded-xl transition-all border border-border-glass" 
+                          title="Edit House Details"
+                        >
+                          <Edit2 size={16}/>
+                        </button>
+                        <button 
+                          onClick={() => deleteHouse(h.id, h.name)} 
+                          className="p-2.5 bg-black/20 hover:bg-red-500/20 text-red-500/70 hover:text-red-500 rounded-xl transition-all border border-border-glass" 
+                          title="Delete House"
+                        >
+                          <Trash2 size={16}/>
+                        </button>
                       </div>
-                      {editingPinId !== h.id && (
-                        <div className="flex gap-2 w-full">
-                          <button onClick={() => regenerateCode(h.id)} className="flex-1 text-[10px] font-bold uppercase tracking-wider bg-black/20 hover:bg-white/10 px-2 py-2 rounded-xl border border-border-glass transition-all text-secondary hover:text-primary flex items-center justify-center gap-1"><RefreshCw size={12}/> Regenerate</button>
-                          <button onClick={() => { setEditingPinId(h.id); setCustomPin(h.login_code || ''); }} className="flex-1 text-[10px] font-bold uppercase tracking-wider bg-black/20 hover:bg-white/10 px-2 py-2 rounded-xl border border-border-glass transition-all text-secondary hover:text-primary flex items-center justify-center gap-1"><Edit2 size={12}/> Edit PIN</button>
+
+                      {editingCodeId === h.id ? (
+                        <div className="flex items-center gap-2 w-full">
+                          <Button 
+                            variant="primary" 
+                            onClick={() => saveCustomCode(h.id, h.name)} 
+                            className="flex-1 text-xs py-2 px-3 gap-1.5 font-bold uppercase tracking-wider bg-emerald-600 hover:bg-emerald-500 border-emerald-500 shadow-md shadow-emerald-900/30"
+                          >
+                            <CheckCircle size={14}/> Confirm Code
+                          </Button>
+                          <Button 
+                            variant="secondary" 
+                            onClick={() => { setEditingCodeId(null); setCustomCode(''); }} 
+                            className="text-xs py-2 px-3 gap-1 font-bold uppercase tracking-wider"
+                          >
+                            <XCircle size={14}/> Cancel
+                          </Button>
                         </div>
+                      ) : (
+                        <Button 
+                          variant="secondary" 
+                          onClick={() => { setEditingCodeId(h.id); setCustomCode(h.login_code || ''); }} 
+                          className="w-full text-xs py-2 px-3.5 gap-1.5 font-bold uppercase tracking-wider bg-black/20 hover:bg-white/10 border-border-glass"
+                        >
+                          <Edit2 size={13}/> Edit Code
+                        </Button>
                       )}
                     </div>
                   </GlassCard>
@@ -920,6 +1527,26 @@ export default function Admin() {
             </div>
           </div>
         )}
+
+        {/* CSV Import Modal */}
+        <CsvImportModal 
+          isOpen={isCsvModalOpen} 
+          onClose={() => setIsCsvModalOpen(false)} 
+          onSuccess={handleCsvImportSuccess} 
+          getAuthHeaders={getAuthHeaders} 
+        />
+
+        {/* Custom App Confirmation Modal */}
+        <ConfirmModal 
+          config={confirmModal} 
+          onClose={() => setConfirmModal(null)} 
+        />
+
+        {/* In-App Toast Notifications */}
+        <ToastContainer 
+          toasts={toasts} 
+          onDismiss={dismissToast} 
+        />
 
       </main>
     </div>

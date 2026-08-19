@@ -9,9 +9,10 @@ import {
   db, getHouses, getQuestions, getUnusedQuestions, updateHouseScore, markQuestionUsed, 
   getHouseByLoginCode, registerDevice, getAdminByUsername, getAdminById, createAdmin,
   createHouse, updateHouse, deleteHouse, updateHouseLoginCode,
-  createQuestion, updateQuestion, deleteQuestion, resetAllQuestions, logRound, getRecentRounds,
-  getDeviceById, resetLeaderboard, initDb
+  createQuestion, updateQuestion, deleteQuestion, resetAllQuestions, reorderQuestions,
+  logRound, getRecentRounds, getDeviceById, resetLeaderboard, initDb
 } from './db.js';
+import { parseQuestionsFromCSV } from './csvParser.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecret_hhm_quiz_admin';
 
@@ -146,6 +147,26 @@ app.get('/api/admin/houses', authenticateAdmin, async (req, res) => {
   }
 });
 
+app.get('/api/admin/questions', authenticateAdmin, async (req, res) => {
+  try {
+    const questions = await getQuestions();
+    res.json(questions);
+  } catch (e) {
+    console.error('Error fetching questions:', e);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.get('/api/admin/recent-rounds', authenticateAdmin, async (req, res) => {
+  try {
+    const rounds = await getRecentRounds(10);
+    res.json(rounds);
+  } catch (e) {
+    console.error('Error fetching recent rounds:', e);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // ==========================
 // House Manager API
 // ==========================
@@ -188,17 +209,18 @@ app.post('/api/admin/houses/:id/regenerate-code', authenticateAdmin, async (req,
 app.post('/api/admin/houses/:id/custom-code', authenticateAdmin, async (req, res) => {
   try {
     const { loginCode } = req.body;
-    if (!loginCode || loginCode.length < 4 || /\s/.test(loginCode)) {
-      return res.status(400).json({ error: 'PIN must be at least 4 characters with no spaces.' });
+    const clean = String(loginCode || '').trim();
+    if (!clean || clean.length < 3 || /\s/.test(clean)) {
+      return res.status(400).json({ error: 'Code must be at least 3 characters with no spaces.' });
     }
     const houses = await getHouses();
-    const isDuplicate = houses.some(h => h.id !== req.params.id && h.login_code === loginCode);
+    const isDuplicate = houses.some(h => h.id !== req.params.id && h.login_code?.toLowerCase() === clean.toLowerCase());
     if (isDuplicate) {
-      return res.status(400).json({ error: 'This PIN is already used by another house.' });
+      return res.status(400).json({ error: 'This Code is already used by another house.' });
     }
-    await updateHouseLoginCode(req.params.id, loginCode);
+    await updateHouseLoginCode(req.params.id, clean);
     broadcastLeaderboard();
-    res.json({ success: true, newCode: loginCode });
+    res.json({ success: true, newCode: clean });
   } catch (e) { res.status(500).json({ error: 'Server error' }); }
 });
 
@@ -209,7 +231,8 @@ app.post('/api/admin/questions', authenticateAdmin, async (req, res) => {
   try {
     const { clue_letters, hero_name, heroine_name, movie_name, points } = req.body;
     const id = 'q_' + Date.now();
-    await createQuestion(id, clue_letters, hero_name, heroine_name, movie_name, points);
+    const pts = parseInt(points) || 1;
+    await createQuestion(id, clue_letters, hero_name, heroine_name, movie_name, pts);
     res.json({ success: true, id });
   } catch (e) { 
     console.error("Error creating question:", e);
@@ -239,30 +262,74 @@ app.post('/api/admin/questions/reset-used', authenticateAdmin, async (req, res) 
   } catch (e) { res.status(500).json({ error: 'Server error' }); }
 });
 
+app.post('/api/admin/questions/reorder', authenticateAdmin, async (req, res) => {
+  try {
+    const { orderedIds } = req.body;
+    if (!Array.isArray(orderedIds)) {
+      return res.status(400).json({ error: 'orderedIds must be an array of question IDs' });
+    }
+    await reorderQuestions(orderedIds);
+    res.json({ success: true });
+  } catch (e) { 
+    console.error('Error reordering questions:', e);
+    res.status(500).json({ error: 'Server error' }); 
+  }
+});
+
 app.post('/api/admin/questions/import', authenticateAdmin, async (req, res) => {
   try {
-    const { csvData } = req.body; // Expecting plain text CSV string
-    const lines = csvData.split(/\r?\n|\\n/);
+    const { csvData, questions: preParsedQuestions } = req.body;
+    let questionsToImport = [];
+    let skipped = 0;
+    let total = 0;
+
+    if (Array.isArray(preParsedQuestions) && preParsedQuestions.length > 0) {
+      questionsToImport = preParsedQuestions;
+      total = preParsedQuestions.length;
+    } else if (csvData && typeof csvData === 'string') {
+      const parseResult = parseQuestionsFromCSV(csvData);
+      questionsToImport = parseResult.questions;
+      skipped = parseResult.skipped;
+      total = parseResult.total;
+    } else {
+      return res.status(400).json({ error: 'No CSV data or questions payload provided' });
+    }
+
+    if (questionsToImport.length === 0) {
+      return res.status(400).json({ 
+        error: 'No valid questions found. Ensure the file contains required columns: Clue, Hero, Heroine, Movie.' 
+      });
+    }
+
     let imported = 0;
-    
-    // Skip header row if exists, simplistic parsing
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i].trim();
-      if (!line || line.toLowerCase().startsWith('clue')) continue;
-      
-      const parts = line.split(',');
-      if (parts.length >= 4) {
-        const clue = parts[0].trim();
-        const hero = parts[1].trim();
-        const heroine = parts[2].trim();
-        const movie = parts[3].trim();
-        const points = parseInt(parts[4]) || 10;
-        await createQuestion('q_' + Date.now() + '_' + i, clue, hero, heroine, movie, points);
+    const now = Date.now();
+    for (let i = 0; i < questionsToImport.length; i++) {
+      const q = questionsToImport[i];
+      const clue = (q.clue_letters || q.clue || '').trim();
+      const hero = (q.hero_name || q.hero || '').trim();
+      const heroine = (q.heroine_name || q.heroine || '').trim();
+      const movie = (q.movie_name || q.movie || '').trim();
+      const points = parseInt(q.points) || 1;
+
+      if (clue && hero && heroine && movie) {
+        const uniqueId = `q_${now}_${i}_${Math.random().toString(36).substring(2, 7)}`;
+        await createQuestion(uniqueId, clue, hero, heroine, movie, points);
         imported++;
+      } else {
+        skipped++;
       }
     }
-    res.json({ success: true, count: imported });
-  } catch (e) { res.status(500).json({ error: 'Server error' }); }
+
+    res.json({ 
+      success: true, 
+      count: imported, 
+      skipped, 
+      total: total || imported + skipped 
+    });
+  } catch (e) { 
+    console.error('Error importing questions:', e);
+    res.status(500).json({ error: e.message || 'Server error' }); 
+  }
 });
 
 
@@ -282,14 +349,36 @@ app.get('/api/houses', async (req, res) => {
 app.post('/api/login', async (req, res) => {
   const { houseId, loginCode, studentName, deviceId } = req.body;
   try {
-    const house = await getHouseByLoginCode(loginCode);
-    if (!house || house.id !== houseId) {
-      return res.status(401).json({ error: 'Invalid login code for this house.' });
+    const cleanHouseId = String(houseId || '').trim();
+    const cleanCode = String(loginCode || '').trim();
+    const cleanStudentName = String(studentName || '').trim();
+    const cleanDeviceId = String(deviceId || 'dev_' + Date.now()).trim();
+
+    if (!cleanHouseId || !cleanCode || !cleanStudentName) {
+      return res.status(400).json({ error: 'Please select a House, enter the Login Code, and enter your Name.' });
     }
-    await registerDevice(deviceId, houseId, studentName);
-    res.json({ success: true, house });
+
+    const house = getHouseByLoginCode(cleanCode);
+    if (!house || house.id.toLowerCase() !== cleanHouseId.toLowerCase()) {
+      return res.status(401).json({ error: 'Invalid login code' });
+    }
+
+    await registerDevice(cleanDeviceId, house.id, cleanStudentName);
+    broadcastDevices();
+    
+    res.json({ 
+      success: true, 
+      house: {
+        id: house.id,
+        name: house.name,
+        color: house.color,
+        icon: house.icon,
+        score: house.score
+      }
+    });
   } catch (err) {
-    res.status(500).json({ error: 'Server error' });
+    console.error('[Login] Error:', err);
+    res.status(500).json({ error: 'Server error during login' });
   }
 });
 

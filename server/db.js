@@ -40,8 +40,9 @@ export const initDb = async () => {
       hero_name TEXT NOT NULL,
       heroine_name TEXT NOT NULL,
       movie_name TEXT NOT NULL,
-      points INTEGER DEFAULT 10,
+      points INTEGER DEFAULT 1,
       used BOOLEAN DEFAULT 0,
+      order_index INTEGER DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -60,7 +61,7 @@ export const initDb = async () => {
     );
   `);
 
-  // Ensure icon column exists if table was created in an older version
+  // Ensure icon column exists in houses if table was created in an older version
   const tableInfo = db.pragma('table_info(houses)');
   const hasIcon = tableInfo.some(col => col.name === 'icon');
   if (!hasIcon) {
@@ -71,16 +72,33 @@ export const initDb = async () => {
     }
   }
 
+  // Ensure order_index column exists in questions if table was created in an older version
+  const qTableInfo = db.pragma('table_info(questions)');
+  const hasOrderIndex = qTableInfo.some(col => col.name === 'order_index');
+  if (!hasOrderIndex) {
+    try {
+      db.exec("ALTER TABLE questions ADD COLUMN order_index INTEGER DEFAULT 0");
+      // Populate sequential order_index based on rowid for existing rows
+      const allQs = db.prepare("SELECT id, rowid FROM questions ORDER BY rowid ASC").all();
+      const updateOrder = db.prepare("UPDATE questions SET order_index = ? WHERE id = ?");
+      allQs.forEach((q, idx) => {
+        updateOrder.run(idx + 1, q.id);
+      });
+    } catch (err) {
+      console.error('Error adding order_index to questions:', err);
+    }
+  }
+
   // Seed default houses if table is empty
   const houseCountRow = db.prepare("SELECT COUNT(*) AS count FROM houses").get();
   if (!houseCountRow || houseCountRow.count === 0) {
     const insertHouse = db.prepare("INSERT INTO houses (id, name, color, icon, login_code) VALUES (?, ?, ?, ?, ?)");
     const seedHouses = db.transaction(() => {
-      insertHouse.run('house_1', 'House Aakash', '#0ea5e9', 'Cloud', '1234');
-      insertHouse.run('house_2', 'House Vayu', '#94a3b8', 'Wind', '2345');
-      insertHouse.run('house_3', 'House Agni', '#ef4444', 'Flame', '3456');
-      insertHouse.run('house_4', 'House Prudhvi', '#22c55e', 'TreePine', '4567');
-      insertHouse.run('house_5', 'House Jal', '#3b82f6', 'Droplets', '5678');
+      insertHouse.run('house_1', 'House Aakash', '#0ea5e9', 'Cloud', 'AAKASH28');
+      insertHouse.run('house_2', 'House Vayu', '#94a3b8', 'Wind', 'VAYU65');
+      insertHouse.run('house_3', 'House Agni', '#ef4444', 'Flame', 'AGNI39');
+      insertHouse.run('house_4', 'House Prudhvi', '#22c55e', 'TreePine', 'PRUDHVI17');
+      insertHouse.run('house_5', 'House Jal', '#3b82f6', 'Droplets', 'JAL45');
     });
     seedHouses();
     console.log('Seeded houses.');
@@ -89,11 +107,9 @@ export const initDb = async () => {
   // Seed default questions if table is empty
   const questionCountRow = db.prepare("SELECT COUNT(*) AS count FROM questions").get();
   if (!questionCountRow || questionCountRow.count === 0) {
-    const insertQuestion = db.prepare("INSERT INTO questions (id, clue_letters, hero_name, heroine_name, movie_name) VALUES (?, ?, ?, ?, ?)");
+    const insertQuestion = db.prepare("INSERT INTO questions (id, clue_letters, hero_name, heroine_name, movie_name, points, order_index) VALUES (?, ?, ?, ?, ?, ?, ?)");
     const seedQuestions = db.transaction(() => {
-      insertQuestion.run('q_1', 'MSD', 'Mahesh Babu', 'Samantha', 'Dookudu');
-      insertQuestion.run('q_2', 'VVR', 'Ram Charan', 'Kiara', 'Vinaya Vidheya Rama');
-      insertQuestion.run('q_3', 'KGF', 'Yash', 'Srinidhi', 'KGF');
+      insertQuestion.run('q_1', 'RKG', 'Ram Charan', 'Kiara Advani', 'Game Changer', 1, 1);
     });
     seedQuestions();
     console.log('Seeded questions.');
@@ -108,7 +124,9 @@ export const getHouses = () => {
 };
 
 export const getHouseByLoginCode = (code) => {
-  return db.prepare("SELECT * FROM houses WHERE login_code = ?").get(code);
+  if (!code) return null;
+  const clean = String(code).trim();
+  return db.prepare("SELECT * FROM houses WHERE TRIM(login_code) = ? COLLATE NOCASE").get(clean);
 };
 
 export const updateHouseScore = (houseId, points) => {
@@ -132,18 +150,23 @@ export const updateHouseLoginCode = (id, loginCode) => {
 };
 
 export const deleteHouse = (id) => {
-  return db.prepare("DELETE FROM houses WHERE id = ?").run(id).changes;
+  const runTx = db.transaction(() => {
+    db.prepare("DELETE FROM devices WHERE house_id = ?").run(id);
+    db.prepare("DELETE FROM rounds WHERE locked_house_id = ?").run(id);
+    return db.prepare("DELETE FROM houses WHERE id = ?").run(id).changes;
+  });
+  return runTx();
 };
 
 // =======================
 // QUESTION HELPERS
 // =======================
 export const getQuestions = () => {
-  return db.prepare("SELECT * FROM questions").all();
+  return db.prepare("SELECT * FROM questions ORDER BY order_index ASC, rowid ASC").all();
 };
 
 export const getUnusedQuestions = () => {
-  return db.prepare("SELECT * FROM questions WHERE used = 0").all();
+  return db.prepare("SELECT * FROM questions WHERE used = 0 ORDER BY order_index ASC, rowid ASC").all();
 };
 
 export const markQuestionUsed = (questionId) => {
@@ -154,16 +177,36 @@ export const resetAllQuestions = () => {
   return db.prepare("UPDATE questions SET used = 0").run().changes;
 };
 
-export const createQuestion = (id, clue, hero, heroine, movie, points) => {
-  return db.prepare("INSERT INTO questions (id, clue_letters, hero_name, heroine_name, movie_name, points) VALUES (?, ?, ?, ?, ?, ?)").run(id, clue, hero, heroine, movie, points).lastInsertRowid;
+export const createQuestion = (id, clue, hero, heroine, movie, points = 1, orderIndex = null) => {
+  if (orderIndex === null || orderIndex === undefined) {
+    const maxRow = db.prepare("SELECT COALESCE(MAX(order_index), 0) AS max_order FROM questions").get();
+    orderIndex = (maxRow ? maxRow.max_order : 0) + 1;
+  }
+  const pts = parseInt(points) || 1;
+  return db.prepare("INSERT INTO questions (id, clue_letters, hero_name, heroine_name, movie_name, points, order_index) VALUES (?, ?, ?, ?, ?, ?, ?)").run(id, clue, hero, heroine, movie, pts, orderIndex).lastInsertRowid;
 };
 
 export const updateQuestion = (id, clue, hero, heroine, movie, points) => {
   return db.prepare("UPDATE questions SET clue_letters = ?, hero_name = ?, heroine_name = ?, movie_name = ?, points = ? WHERE id = ?").run(clue, hero, heroine, movie, points, id).changes;
 };
 
+export const reorderQuestions = (orderedIds) => {
+  const stmt = db.prepare("UPDATE questions SET order_index = ? WHERE id = ?");
+  const runTx = db.transaction(() => {
+    orderedIds.forEach((id, index) => {
+      stmt.run(index + 1, id);
+    });
+  });
+  runTx();
+  return true;
+};
+
 export const deleteQuestion = (id) => {
-  return db.prepare("DELETE FROM questions WHERE id = ?").run(id).changes;
+  const runTx = db.transaction(() => {
+    db.prepare("DELETE FROM rounds WHERE question_id = ?").run(id);
+    return db.prepare("DELETE FROM questions WHERE id = ?").run(id).changes;
+  });
+  return runTx();
 };
 
 // =======================

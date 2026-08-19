@@ -7,7 +7,7 @@ import { Input } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
 import { ThemeToggle } from '../components/ThemeToggle';
 import { HouseLogo } from '../components/HouseLogo';
-import { LogOut, Volume2, User, ShieldAlert, Sparkles, AlertTriangle } from 'lucide-react';
+import { LogOut, Volume2, User, ShieldAlert, Sparkles, AlertTriangle, Lock } from 'lucide-react';
 
 interface House {
   id: string;
@@ -63,7 +63,7 @@ export default function Player() {
   const [studentName, setStudentName] = useState<string>(() => localStorage.getItem('student_name') || '');
   const [housesList, setHousesList] = useState<House[]>([]);
   const [loginForm, setLoginForm] = useState<LoginForm>({
-    houseId: '',
+    houseId: 'house_1',
     loginCode: '',
     studentName: ''
   });
@@ -80,10 +80,17 @@ export default function Player() {
         if (!res.ok) throw new Error('Network response was not ok');
         return res.json();
       })
-      .then((data: House[]) => setHousesList(data))
+      .then((data: House[]) => {
+        if (Array.isArray(data) && data.length > 0) {
+          setHousesList(data);
+          setLoginForm(prev => ({
+            ...prev,
+            houseId: prev.houseId || data[0].id
+          }));
+        }
+      })
       .catch(err => {
         console.error("Failed to fetch houses:", err);
-        setLoginForm(prev => ({ ...prev, error: "Failed to connect to server. Check backend URL." }));
       });
 
     socket.on('state:update', (state: GameState) => {
@@ -129,23 +136,45 @@ export default function Player() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    const cleanHouseId = String(loginForm.houseId || (housesList[0]?.id || 'house_1')).trim();
+    const cleanLoginCode = String(loginForm.loginCode || '').trim();
+    const cleanStudentName = String(loginForm.studentName || '').trim();
+
+    if (!cleanHouseId) {
+      setLoginForm(prev => ({ ...prev, error: 'Please select a House to join.' }));
+      return;
+    }
+    if (!cleanLoginCode) {
+      setLoginForm(prev => ({ ...prev, error: 'Please enter your House Code.' }));
+      return;
+    }
+    if (!cleanStudentName) {
+      setLoginForm(prev => ({ ...prev, error: 'Please enter your Name.' }));
+      return;
+    }
+
     try {
       const res = await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...loginForm, deviceId: getDeviceId() })
+        body: JSON.stringify({
+          houseId: cleanHouseId,
+          loginCode: cleanLoginCode,
+          studentName: cleanStudentName,
+          deviceId: getDeviceId()
+        })
       });
       const data = await res.json();
       if (data.success) {
         setHouse(data.house);
-        setStudentName(loginForm.studentName);
+        setStudentName(cleanStudentName);
         localStorage.setItem('house', JSON.stringify(data.house));
-        localStorage.setItem('student_name', loginForm.studentName);
+        localStorage.setItem('student_name', cleanStudentName);
       } else {
-        alert(data.error || 'Failed to join house');
+        setLoginForm(prev => ({ ...prev, error: data.error || 'Invalid login code' }));
       }
     } catch (err) {
-      alert('Network error connecting to server');
+      setLoginForm(prev => ({ ...prev, error: 'Network error connecting to game server.' }));
     }
   };
 
@@ -242,13 +271,13 @@ export default function Player() {
             </div>
             
             <Input 
-              label="Login Code"
+              label="House Code"
               type="text" 
-              placeholder="Enter House PIN (e.g. 1234)"
+              placeholder="Enter House Code (e.g. AAKASH28)"
               value={loginForm.loginCode} 
               onChange={e => setLoginForm({...loginForm, loginCode: e.target.value})}
               required
-              className="text-sm p-3.5"
+              className="text-sm p-3.5 font-mono uppercase tracking-wider"
             />
             
             <Input 
@@ -536,15 +565,26 @@ export default function Player() {
                       : undefined
                   }
                 >
-                  <div className="relative z-10 flex flex-col items-center justify-center select-none">
-                    <span className="font-display font-black text-4xl xs:text-5xl sm:text-6xl text-white tracking-widest leading-none drop-shadow-[0_4px_12px_rgba(0,0,0,0.85)]">
-                      {isLockedOut || (gameState.status === 'LOCKED' && isAnotherHouseLocked) ? 'LOCKED' : 'BUZZ'}
-                    </span>
-
-                    <span className="text-[10px] sm:text-xs font-bold tracking-widest text-white/90 uppercase mt-4 sm:mt-5 px-3 py-0.5 rounded-full bg-black/40 backdrop-blur-xs border border-white/10 shadow-inner">
-                      {isLockedOut || (gameState.status === 'LOCKED' && isAnotherHouseLocked) ? 'OUT' : isBuzzerActive ? 'TAP TO ANSWER' : 'WAIT FOR CLUE'}
-                    </span>
-                  </div>
+                  {isLockedOut || (gameState.status === 'LOCKED' && isAnotherHouseLocked) ? (
+                    <div className="relative z-10 flex flex-col items-center justify-center select-none px-4 text-center">
+                      <Lock size={30} className="text-slate-400 mb-1.5 opacity-75" />
+                      <span className="font-display font-black text-2xl xs:text-3xl sm:text-4xl text-slate-300 tracking-wider leading-none drop-shadow-[0_4px_12px_rgba(0,0,0,0.85)]">
+                        LOCKED
+                      </span>
+                      <span className="text-[10px] sm:text-xs font-bold tracking-widest text-slate-400 uppercase mt-2.5 px-3 py-0.5 rounded-full bg-black/50 border border-white/10 shadow-inner">
+                        {isLockedOut ? 'LOCKED OUT' : 'WAIT FOR RE-ARM'}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="relative z-10 flex flex-col items-center justify-center select-none px-4 text-center">
+                      <span className="font-display font-black text-4xl xs:text-5xl sm:text-6xl text-white tracking-widest leading-none drop-shadow-[0_4px_12px_rgba(0,0,0,0.85)]">
+                        BUZZ
+                      </span>
+                      <span className="text-[10px] sm:text-xs font-bold tracking-widest text-white/90 uppercase mt-3.5 sm:mt-4 px-3 py-0.5 rounded-full bg-black/40 backdrop-blur-xs border border-white/10 shadow-inner">
+                        {isBuzzerActive ? 'TAP TO ANSWER' : 'WAIT FOR CLUE'}
+                      </span>
+                    </div>
+                  )}
                 </div>
               </button>
 
