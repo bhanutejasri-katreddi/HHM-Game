@@ -1,0 +1,89 @@
+// Prisma schema — HHM Buzzer backend
+// Database: Neon Postgres. Connection string comes from DATABASE_URL (.env / host env).
+//
+// NOTE: Model fields intentionally use snake_case to match the previous SQLite
+// column names 1:1 so that all JSON API responses keep the exact same shape
+// the frontend already expects (e.g. login_code, clue_letters, house_name).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Admin {
+  id            String   @id
+  username      String   @unique
+  password_hash String
+  is_protected  Boolean  @default(false)
+  created_at    DateTime @default(now())
+
+  @@map("admins")
+}
+
+model House {
+  id         String @id
+  name       String
+  color      String
+  icon       String @default("Circle")
+  login_code String
+  score      Int    @default(0)
+
+  devices Device[]
+  rounds  Round[]
+
+  @@map("houses")
+}
+
+model Device {
+  id           String   @id
+  house_id     String
+  student_name String?
+  last_seen_at BigInt?
+  created_at   DateTime @default(now())
+
+  house House @relation(fields: [house_id], references: [id])
+
+  @@index([house_id])
+  @@map("devices")
+}
+
+model Question {
+  id           String   @id
+  clue_letters String
+  hero_name    String
+  heroine_name String
+  movie_name   String
+  points       Int      @default(1)
+  used         Boolean  @default(false)
+  order_index  Int      @default(0)
+  created_at   DateTime @default(now())
+
+  rounds Round[]
+
+  @@index([order_index])
+  @@map("questions")
+}
+
+model Round {
+  id               String   @id
+  question_id      String
+  locked_house_id  String?
+  locked_device_id String?
+  locked_at        BigInt?
+  answers          String?
+  result           String?
+  points_awarded   Int      @default(0)
+  created_at       DateTime @default(now())
+
+  question Question @relation(fields: [question_id], references: [id])
+  house    House?   @relation(fields: [locked_house_id], references: [id])
+
+  @@index([question_id])
+  @@index([locked_house_id])
+  @@index([locked_at])
+  @@map("rounds")
+}

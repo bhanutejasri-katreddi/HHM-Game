@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express from 'express';
 import http from 'http';
 import { Server } from 'socket.io';
@@ -5,9 +6,9 @@ import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
-import { 
-  db, getHouses, getQuestions, getUnusedQuestions, updateHouseScore, markQuestionUsed, 
-  getHouseByLoginCode, registerDevice, getAdminByUsername, getAdminById, createAdmin,
+import {
+  prisma, getHouses, getQuestions, getUnusedQuestions, updateHouseScore, markQuestionUsed,
+  getHouseByLoginCode, registerDevice, getAdminByUsername, getAdminById, createAdmin, deleteAdmin,
   createHouse, updateHouse, deleteHouse, updateHouseLoginCode,
   createQuestion, updateQuestion, deleteQuestion, resetAllQuestions, reorderQuestions,
   logRound, getRecentRounds, getDeviceById, resetLeaderboard, initDb
@@ -39,7 +40,7 @@ const authenticateAdmin = async (req, res, next) => {
   if (!token) return res.status(401).json({ error: 'Unauthorized' });
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
-    const admin = getAdminById(decoded.id);
+    const admin = await getAdminById(decoded.id);
     if (!admin) throw new Error('Admin not found');
     req.admin = admin;
     next();
@@ -49,7 +50,7 @@ const authenticateAdmin = async (req, res, next) => {
 };
 
 const getCookieOptions = () => {
-  const isProd = process.env.NODE_ENV === 'production' || Boolean(process.env.RENDER) || Boolean(process.env.DB_PATH);
+  const isProd = process.env.NODE_ENV === 'production' || Boolean(process.env.RENDER);
   return {
     httpOnly: true,
     secure: isProd,
@@ -98,16 +99,17 @@ const broadcastDevices = () => {
 app.post('/api/admin/signup', async (req, res) => {
   const { username, password } = req.body;
   try {
-    const existing = getAdminByUsername(username);
+    const existing = await getAdminByUsername(username);
     if (existing) return res.status(400).json({ error: 'Username already taken' });
     const hash = await bcrypt.hash(password, 10);
     const id = 'admin_' + Date.now();
-    createAdmin(id, username, hash);
-    
+    await createAdmin(id, username, hash);
+
     const token = jwt.sign({ id }, JWT_SECRET, { expiresIn: '7d' });
     res.cookie('admin_token', token, getCookieOptions());
     res.json({ success: true, username, token });
   } catch (err) {
+    if (err?.code === 'P2002') return res.status(400).json({ error: 'Username already taken' });
     console.error(err);
     res.status(500).json({ error: 'Server error' });
   }
@@ -116,11 +118,11 @@ app.post('/api/admin/signup', async (req, res) => {
 app.post('/api/admin/login', async (req, res) => {
   const { username, password } = req.body;
   try {
-    const admin = getAdminByUsername(username);
+    const admin = await getAdminByUsername(username);
     if (!admin) return res.status(401).json({ error: 'Invalid credentials' });
     const match = await bcrypt.compare(password, admin.password_hash);
     if (!match) return res.status(401).json({ error: 'Invalid credentials' });
-    
+
     const token = jwt.sign({ id: admin.id }, JWT_SECRET, { expiresIn: '7d' });
     res.cookie('admin_token', token, getCookieOptions());
     res.json({ success: true, username: admin.username, token });
@@ -136,6 +138,24 @@ app.post('/api/admin/logout', (req, res) => {
 
 app.get('/api/admin/me', authenticateAdmin, (req, res) => {
   res.json({ success: true, username: req.admin.username });
+});
+
+app.delete('/api/admin/:id', authenticateAdmin, async (req, res) => {
+  try {
+    const target = await getAdminById(req.params.id);
+    if (!target) return res.status(404).json({ error: 'Admin not found' });
+    if (target.is_protected) {
+      return res.status(403).json({ error: 'This is the default admin account and cannot be deleted' });
+    }
+    await deleteAdmin(req.params.id);
+    res.json({ success: true });
+  } catch (e) {
+    if (e?.code === 'PROTECTED_ADMIN') {
+      return res.status(403).json({ error: 'This is the default admin account and cannot be deleted' });
+    }
+    console.error('Error deleting admin:', e);
+    res.status(500).json({ error: 'Server error' });
+  }
 });
 
 app.get('/api/admin/houses', authenticateAdmin, async (req, res) => {
@@ -358,7 +378,7 @@ app.post('/api/login', async (req, res) => {
       return res.status(400).json({ error: 'Please select a House, enter the Login Code, and enter your Name.' });
     }
 
-    const house = getHouseByLoginCode(cleanCode);
+    const house = await getHouseByLoginCode(cleanCode);
     if (!house || house.id.toLowerCase() !== cleanHouseId.toLowerCase()) {
       return res.status(401).json({ error: 'Invalid login code' });
     }
@@ -398,23 +418,26 @@ app.post('/api/buzz', async (req, res) => {
     return res.json({ success: false, reason: 'Already locked' });
   }
 
+  // Lock the buzzer SYNCHRONOUSLY before any await — this check-and-set must be
+  // atomic within the event-loop tick so only ONE concurrent request can win.
+  gameState.buzzersOpen = false;
+  gameState.status = 'LOCKED';
+  gameState.lockedHouseId = houseId;
+  gameState.lockedByDeviceId = deviceId;
+  gameState.lockedStudentName = null;
+  gameState.lockedAt = serverTimestampMs;
+  gameState.buzzElapsedMs = gameState.roundStartedAt ? (serverTimestampMs - gameState.roundStartedAt) : null;
+  gameState.timerSeconds = 15;
+
+  // Resolve student name asynchronously (safe — the round is already locked)
   let studentName = null;
   try {
     const device = await getDeviceById(deviceId);
     if (device && device.student_name && device.student_name.trim() !== '') {
       studentName = device.student_name.trim();
+      gameState.lockedStudentName = studentName;
     }
   } catch(e) {}
-
-  // Lock the buzzer synchronously
-  gameState.buzzersOpen = false;
-  gameState.status = 'LOCKED';
-  gameState.lockedHouseId = houseId;
-  gameState.lockedByDeviceId = deviceId;
-  gameState.lockedStudentName = studentName;
-  gameState.lockedAt = serverTimestampMs;
-  gameState.buzzElapsedMs = gameState.roundStartedAt ? (serverTimestampMs - gameState.roundStartedAt) : null;
-  gameState.timerSeconds = 15;
 
   // Emit lock event immediately
   io.to('game:main').emit('buzzer:locked', {
@@ -494,14 +517,17 @@ app.post('/api/admin/judge', authenticateAdmin, async (req, res) => {
     await updateHouseScore(currentLockedHouseId, pointsDelta);
   }
 
-  await logRound(
-    'r_' + Date.now(), 
-    gameState.currentQuestion?.id || 'q_manual', 
-    currentLockedHouseId, 
-    gameState.lockedByDeviceId, 
-    correct ? 'CORRECT' : 'WRONG', 
-    pointsDelta
-  );
+  // Only log a round when it belongs to a real question (FK to questions).
+  if (gameState.currentQuestion?.id) {
+    await logRound(
+      'r_' + Date.now(),
+      gameState.currentQuestion.id,
+      currentLockedHouseId,
+      gameState.lockedByDeviceId,
+      correct ? 'CORRECT' : 'WRONG',
+      pointsDelta
+    );
+  }
 
   if (correct) {
     gameState.status = 'JUDGED';
@@ -578,44 +604,14 @@ app.post('/api/admin/reset-leaderboard', authenticateAdmin, async (req, res) => 
   }
 });
 
-// ==========================
-// Public APIs
-// ==========================
-app.get('/api/houses', async (req, res) => {
-  try {
-    const houses = await getHouses();
-    // Strip login_code for public endpoint
-    const safeHouses = houses.map(({ login_code, ...rest }) => rest);
-    res.json(safeHouses);
-  } catch (e) {
-    res.status(500).json({ error: 'Server error' });
-  }
-});
-
-app.get('/api/admin/questions', authenticateAdmin, async (req, res) => {
-  try {
-    const questions = await getQuestions();
-    res.json(questions);
-  } catch (e) {
-    res.status(500).json({ error: 'Server error' });
-  }
-});
-
-app.get('/api/admin/recent-rounds', authenticateAdmin, async (req, res) => {
-  try {
-    const rounds = await getRecentRounds(5);
-    res.json(rounds);
-  } catch (e) {
-    res.status(500).json({ error: 'Server error' });
-  }
-});
-
 // Socket.io connection handling
 io.on('connection', (socket) => {
   socket.join('game:main');
-  
+
   socket.emit('state:update', gameState);
-  socket.emit('leaderboard:update', getHouses());
+  getHouses()
+    .then((houses) => socket.emit('leaderboard:update', houses))
+    .catch((err) => console.error('Error emitting leaderboard:', err));
   socket.emit('devices:update', getDeviceCounts());
 
   socket.on('join_house', (houseId) => {

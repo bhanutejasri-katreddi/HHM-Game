@@ -2,10 +2,10 @@ import { initDb, getUnusedQuestions, getQuestions, markQuestionUsed } from './db
 
 async function test() {
   await initDb();
-  console.log("All questions:", getQuestions());
-  console.log("Unused questions before:", getUnusedQuestions());
-  markQuestionUsed('q_3');
-  console.log("Unused questions after:", getUnusedQuestions());
+  console.log('All questions:', await getQuestions());
+  console.log('Unused questions before:', await getUnusedQuestions());
+  await markQuestionUsed('q_1');
+  console.log('Unused questions after:', await getUnusedQuestions());
 }
 
 test().catch(console.error);

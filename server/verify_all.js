@@ -353,7 +353,29 @@ async function runTests() {
   assert.ok(verifiedHouses.every(h => h.score === 0), "All house scores should be 0 after reset");
   console.log("✅ Leaderboard reset verified (all scores 0)");
 
-  console.log("\n🎉 ALL TESTS PASSED SUCCESSFULLY! Database and backend are fully operational with better-sqlite3.");
+  // 6. DEFAULT PROTECTED ADMIN
+  console.log("\n--- Testing Default Protected Admin ---");
+  const defaultLoginRes = await fetch(`${BASE_URL}/api/admin/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: 'b77x.io', password: '777777' })
+  });
+  assert.strictEqual(defaultLoginRes.status, 200, "Default admin b77x.io should be able to login");
+  const defaultLoginData = await defaultLoginRes.json();
+  assert.strictEqual(defaultLoginData.success, true);
+  assert.strictEqual(defaultLoginData.username, 'b77x.io');
+  console.log("✅ Default admin b77x.io login works");
+
+  const deleteProtectedRes = await fetch(`${BASE_URL}/api/admin/admin_default_b77x`, {
+    method: 'DELETE',
+    headers: { 'Authorization': `Bearer ${authToken}` }
+  });
+  assert.strictEqual(deleteProtectedRes.status, 403, "Deleting protected default admin should be blocked");
+  const deleteProtectedData = await deleteProtectedRes.json();
+  assert.match(deleteProtectedData.error, /default admin account and cannot be deleted/i);
+  console.log("✅ Protected default admin cannot be deleted");
+
+  console.log("\n🎉 ALL TESTS PASSED SUCCESSFULLY! Database and backend are fully operational with Prisma + Neon Postgres.");
 }
 
 runTests().catch(err => {

@@ -26,13 +26,25 @@ for (let i = 0; i < NUM_CLIENTS; i++) {
   });
 }
 
+async function getAdminToken() {
+  const res = await fetch(`${SERVER_URL}/api/admin/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: 'b77x.io', password: '777777' })
+  });
+  if (!res.ok) throw new Error(`Admin login failed: ${res.status}`);
+  const data = await res.json();
+  return data.token;
+}
+
 async function runBuzzTest() {
   console.log('Simulating Host opening buzzers...');
   
   // Set state to CLUE_SHOWN manually via API (admin)
+  const token = await getAdminToken();
   await fetch(`${SERVER_URL}/api/admin/start-round`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
     body: JSON.stringify({ questionId: 'q_1' })
   });
 
