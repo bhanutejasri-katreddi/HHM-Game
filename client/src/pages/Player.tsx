@@ -252,7 +252,13 @@ export default function Player() {
     if (!isSessionActive) {
       return (
         <div className="min-h-screen flex items-center justify-center p-4 sm:p-6 relative overflow-hidden">
-          <div className="absolute top-4 right-4 z-50">
+          <div className="absolute top-4 right-4 z-50 flex items-center gap-2">
+            <Link 
+              to="/admin/login" 
+              className="text-xs font-bold text-secondary hover:text-primary bg-black/20 hover:bg-white/10 px-3 py-1.5 rounded-lg border border-border-glass transition-colors"
+            >
+              Host Login
+            </Link>
             <ThemeToggle />
           </div>
           
@@ -270,6 +276,15 @@ export default function Player() {
             >
               Refresh Status
             </Button>
+
+            <div className="mt-6 pt-4 border-t border-border-glass text-center">
+              <Link 
+                to="/admin/login" 
+                className="text-brand hover:text-brand-light font-bold text-xs inline-flex items-center gap-1.5 transition-colors p-2 rounded-lg hover:bg-white/5"
+              >
+                <span>Are you a Host? Admin Login &rarr;</span>
+              </Link>
+            </div>
           </GlassCard>
         </div>
       );
