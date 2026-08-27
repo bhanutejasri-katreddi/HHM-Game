@@ -62,6 +62,8 @@ export default function Player() {
   });
   const [studentName, setStudentName] = useState<string>(() => localStorage.getItem('student_name') || '');
   const [housesList, setHousesList] = useState<House[]>([]);
+  const [isSessionActive, setIsSessionActive] = useState(true);
+  const [isCheckingSession, setIsCheckingSession] = useState(true);
   const [loginForm, setLoginForm] = useState<LoginForm>({
     houseId: 'house_1',
     loginCode: '',
@@ -74,14 +76,21 @@ export default function Player() {
   const [isTapped, setIsTapped] = useState(false);
 
   useEffect(() => {
-    // Fetch houses for login
-    fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/houses')
-      .then(res => {
-        if (!res.ok) throw new Error('Network response was not ok');
-        return res.json();
+    // Check if session is active
+    fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/sessions/active')
+      .then(res => res.json())
+      .then(data => {
+        setIsSessionActive(!!data.activeSessionId);
+        setIsCheckingSession(false);
+        if (data.activeSessionId) {
+          // Fetch houses for login only if session is active
+          return fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/houses');
+        }
+        return null;
       })
-      .then((data: House[]) => {
-        if (Array.isArray(data) && data.length > 0) {
+      .then(res => res ? res.json() : null)
+      .then(data => {
+        if (data && Array.isArray(data) && data.length > 0) {
           setHousesList(data);
           setLoginForm(prev => ({
             ...prev,
@@ -90,7 +99,8 @@ export default function Player() {
         }
       })
       .catch(err => {
-        console.error("Failed to fetch houses:", err);
+        console.error("Failed to check session or fetch houses:", err);
+        setIsCheckingSession(false);
       });
 
     socket.on('state:update', (state: GameState) => {
@@ -128,6 +138,12 @@ export default function Player() {
       }));
     });
 
+    socket.on('session:ended', () => {
+      localStorage.removeItem('house');
+      localStorage.removeItem('student_name');
+      window.location.reload();
+    });
+
     if (house) {
       socket.emit('join_house', house.id);
     }
@@ -139,6 +155,7 @@ export default function Player() {
       socket.off('timer:tick');
       socket.off('answer:result');
       socket.off('answer:reveal');
+      socket.off('session:ended');
     };
   }, [house]);
 
@@ -222,6 +239,40 @@ export default function Player() {
 
   // --- JOIN SCREEN ---
   if (!house) {
+    if (isCheckingSession) {
+      return (
+        <div className="min-h-screen flex items-center justify-center p-4 relative">
+          <div className="w-10 h-10 border-4 border-brand border-t-transparent rounded-full animate-spin" />
+        </div>
+      );
+    }
+
+    if (!isSessionActive) {
+      return (
+        <div className="min-h-screen flex items-center justify-center p-4 sm:p-6 relative overflow-hidden">
+          <div className="absolute top-4 right-4 z-50">
+            <ThemeToggle />
+          </div>
+          
+          <GlassCard className="w-full max-w-sm sm:max-w-md animate-in relative z-10 p-8 text-center">
+            <div className="w-16 h-16 bg-red-500/10 text-red-500 rounded-3xl flex items-center justify-center mx-auto mb-6 border border-red-500/20">
+              <Lock size={32} />
+            </div>
+            <h2 className="text-3xl sm:text-4xl font-display font-black tracking-tight mb-2">No Live Game</h2>
+            <p className="text-secondary text-sm mb-6">There is currently no active game session. Please wait for the host to start a session.</p>
+            
+            <Button 
+              onClick={() => window.location.reload()} 
+              variant="secondary"
+              className="w-full py-3"
+            >
+              Refresh Status
+            </Button>
+          </GlassCard>
+        </div>
+      );
+    }
+
     return (
       <div className="min-h-screen flex items-center justify-center p-4 sm:p-6 relative overflow-hidden">
         <div className="absolute top-4 right-4 z-50">

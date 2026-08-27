@@ -75,6 +75,8 @@ const getAuthHeaders = (): Record<string, string> => {
 
 export default function Admin() {
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [sessionName, setSessionName] = useState('');
   const [activeTab, setActiveTab] = useState<'live' | 'questions' | 'houses'>('live');
   const [adminUsername, setAdminUsername] = useState('');
   const [gameState, setGameState] = useState<GameState>({ status: 'IDLE', timerSeconds: 0, lockedHouseId: null, currentQuestion: null });
@@ -157,6 +159,16 @@ export default function Admin() {
         if (Array.isArray(data)) setRecentRounds(data);
       })
       .catch(err => console.error('[Admin] Error fetching recent rounds:', err));
+
+    fetch(serverUrl + '/api/sessions/active', {
+      credentials: 'include',
+      headers: { ...authHeaders }
+    })
+      .then(res => res.json())
+      .then(data => {
+        setActiveSessionId(data.activeSessionId);
+      })
+      .catch(err => console.error('[Admin] Error fetching active session:', err));
   };
 
   useEffect(() => {
@@ -674,6 +686,55 @@ export default function Admin() {
     navigate('/admin/login');
   };
 
+  const createSession = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const res = await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/admin/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        credentials: 'include',
+        body: JSON.stringify({ name: sessionName })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setActiveSessionId(data.sessionId);
+      fetchData();
+      showToast('New Session Started!', 'success');
+    } catch (e: any) {
+      showToast(e.message || 'Error creating session', 'error');
+    }
+  };
+
+  const endSession = () => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'End Session?',
+      message: 'This will end the current session and permanently delete all houses, players, and round data from this session. This cannot be undone. Are you sure?',
+      confirmText: 'End Session',
+      cancelText: 'Cancel',
+      variant: 'destructive',
+      icon: 'trash',
+      onConfirm: async () => {
+        try {
+          const res = await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/admin/sessions/end', {
+            method: 'POST',
+            headers: { ...getAuthHeaders() },
+            credentials: 'include'
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error);
+          setActiveSessionId(null);
+          setHouses([]);
+          setRecentRounds([]);
+          setGameState({ status: 'IDLE', timerSeconds: 0, lockedHouseId: null, currentQuestion: null });
+          showToast('Session ended successfully.', 'success');
+        } catch (e: any) {
+          showToast(e.message || 'Error ending session', 'error');
+        }
+      }
+    });
+  };
+
   if (isCheckingAuth) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
@@ -703,9 +764,11 @@ export default function Admin() {
           <button onClick={() => setActiveTab('questions')} className={`w-full flex items-center gap-3 p-3.5 rounded-xl transition-all font-bold text-sm ${activeTab === 'questions' ? 'bg-brand/20 text-brand' : 'hover:bg-white/5 text-secondary'}`}>
             <Database size={18} /> Question Bank
           </button>
-          <button onClick={() => setActiveTab('houses')} className={`w-full flex items-center gap-3 p-3.5 rounded-xl transition-all font-bold text-sm ${activeTab === 'houses' ? 'bg-brand/20 text-brand' : 'hover:bg-white/5 text-secondary'}`}>
-            <Home size={18} /> Houses
-          </button>
+          {activeSessionId && (
+            <button onClick={() => setActiveTab('houses')} className={`w-full flex items-center gap-3 p-3.5 rounded-xl transition-all font-bold text-sm ${activeTab === 'houses' ? 'bg-brand/20 text-brand' : 'hover:bg-white/5 text-secondary'}`}>
+              <Home size={18} /> Houses
+            </button>
+          )}
         </nav>
 
         <div className="p-5 border-t border-border-glass flex flex-col gap-3">
@@ -720,7 +783,28 @@ export default function Admin() {
       <main className="flex-1 overflow-y-auto p-6 sm:p-8 relative z-20">
         
         {/* LIVE GAME TAB */}
-        {activeTab === 'live' && (
+        {activeTab === 'live' && !activeSessionId && (
+          <div className="flex items-center justify-center h-full">
+            <GlassCard className="max-w-md w-full p-8 text-center animate-in">
+              <h2 className="text-3xl font-display font-black mb-2 text-primary">No Active Session</h2>
+              <p className="text-secondary text-sm mb-8">Create a new session to start a game. This will reset the scoreboard and provision new house codes.</p>
+              
+              <form onSubmit={createSession} className="space-y-4">
+                <Input 
+                  label="Session Name (Optional)" 
+                  placeholder="e.g. HHM Mega Event - Aug 2026"
+                  value={sessionName}
+                  onChange={e => setSessionName(e.target.value)}
+                />
+                <Button type="submit" className="w-full shadow-lg shadow-brand/20 py-3 mt-2 text-sm">
+                  CREATE NEW SESSION
+                </Button>
+              </form>
+            </GlassCard>
+          </div>
+        )}
+        
+        {activeTab === 'live' && activeSessionId && (
           <div className="grid grid-cols-12 gap-6 h-full animate-in">
             
             {/* Main Center Stage (What the whole room sees — completely unobstructed) */}
@@ -969,9 +1053,15 @@ export default function Admin() {
                 </div>
                 <Button 
                   onClick={resetLeaderboard} 
-                  className="w-full text-xs py-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/30 transition-all font-bold tracking-widest uppercase flex items-center justify-center gap-2"
+                  className="w-full text-xs py-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/30 transition-all font-bold tracking-widest uppercase flex items-center justify-center gap-2 mb-2.5"
                 >
                   <RefreshCw size={14} /> Reset Leaderboard
+                </Button>
+                <Button 
+                  onClick={endSession} 
+                  className="w-full text-xs py-2 bg-red-600 hover:bg-red-700 text-white border border-red-500/30 transition-all font-bold tracking-widest uppercase flex items-center justify-center gap-2"
+                >
+                  <Trash2 size={14} /> End Session
                 </Button>
               </GlassCard>
 

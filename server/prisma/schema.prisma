@@ -24,6 +24,20 @@ model Admin {
   @@map("admins")
 }
 
+model Session {
+  id         String    @id
+  name       String?
+  status     String    @default("ACTIVE") // ACTIVE, ENDED
+  created_at DateTime  @default(now())
+  ended_at   DateTime?
+
+  houses  House[]
+  devices Device[]
+  rounds  Round[]
+
+  @@map("sessions")
+}
+
 model House {
   id         String @id
   name       String
@@ -31,10 +45,13 @@ model House {
   icon       String @default("Circle")
   login_code String
   score      Int    @default(0)
+  session_id String
 
+  session Session  @relation(fields: [session_id], references: [id], onDelete: Cascade)
   devices Device[]
   rounds  Round[]
 
+  @@index([session_id])
   @@map("houses")
 }
 
@@ -43,11 +60,14 @@ model Device {
   house_id     String
   student_name String?
   last_seen_at BigInt?
+  session_id   String
   created_at   DateTime @default(now())
 
-  house House @relation(fields: [house_id], references: [id])
+  house   House   @relation(fields: [house_id], references: [id], onDelete: Cascade)
+  session Session @relation(fields: [session_id], references: [id], onDelete: Cascade)
 
   @@index([house_id])
+  @@index([session_id])
   @@map("devices")
 }
 
@@ -77,13 +97,16 @@ model Round {
   answers          String?
   result           String?
   points_awarded   Int      @default(0)
+  session_id       String
   created_at       DateTime @default(now())
 
   question Question @relation(fields: [question_id], references: [id])
-  house    House?   @relation(fields: [locked_house_id], references: [id])
+  house    House?   @relation(fields: [locked_house_id], references: [id], onDelete: Cascade)
+  session  Session  @relation(fields: [session_id], references: [id], onDelete: Cascade)
 
   @@index([question_id])
   @@index([locked_house_id])
+  @@index([session_id])
   @@index([locked_at])
   @@map("rounds")
 }

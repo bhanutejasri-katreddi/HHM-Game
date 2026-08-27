@@ -11,7 +11,8 @@ import {
   getHouseByLoginCode, registerDevice, getAdminByUsername, getAdminById, createAdmin, deleteAdmin,
   createHouse, updateHouse, deleteHouse, updateHouseLoginCode,
   createQuestion, updateQuestion, deleteQuestion, resetAllQuestions, reorderQuestions,
-  logRound, getRecentRounds, getDeviceById, resetLeaderboard, initDb
+  logRound, getRecentRounds, getDeviceById, resetLeaderboard, initDb,
+  getActiveSession, createSession, endSession
 } from './db.js';
 import { parseQuestionsFromCSV } from './csvParser.js';
 
@@ -60,6 +61,8 @@ const getCookieOptions = () => {
 };
 
 // Game State
+let activeSessionId = null;
+
 let gameState = {
   status: 'IDLE', // IDLE, CLUE_SHOWN, LOCKED, JUDGED
   currentQuestion: null,
@@ -81,7 +84,8 @@ const broadcastState = () => {
 };
 
 const broadcastLeaderboard = async () => {
-  const houses = await getHouses();
+  if (!activeSessionId) return;
+  const houses = await getHouses(activeSessionId);
   io.to('game:main').emit('leaderboard:update', houses);
 };
 
@@ -160,7 +164,8 @@ app.delete('/api/admin/:id', authenticateAdmin, async (req, res) => {
 
 app.get('/api/admin/houses', authenticateAdmin, async (req, res) => {
   try {
-    const houses = await getHouses();
+    if (!activeSessionId) return res.json([]);
+    const houses = await getHouses(activeSessionId);
     res.json(houses);
   } catch (e) {
     res.status(500).json({ error: 'Server error' });
@@ -179,10 +184,64 @@ app.get('/api/admin/questions', authenticateAdmin, async (req, res) => {
 
 app.get('/api/admin/recent-rounds', authenticateAdmin, async (req, res) => {
   try {
-    const rounds = await getRecentRounds(10);
+    if (!activeSessionId) return res.json([]);
+    const rounds = await getRecentRounds(activeSessionId, 10);
     res.json(rounds);
   } catch (e) {
     console.error('Error fetching recent rounds:', e);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ==========================
+// Session API
+// ==========================
+app.get('/api/sessions/active', async (req, res) => {
+  try {
+    res.json({ activeSessionId });
+  } catch (e) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.post('/api/admin/sessions', authenticateAdmin, async (req, res) => {
+  try {
+    if (activeSessionId) {
+      return res.status(400).json({ error: 'A session is already active.' });
+    }
+    const { name } = req.body;
+    activeSessionId = await createSession(name);
+    broadcastLeaderboard();
+    res.json({ success: true, sessionId: activeSessionId });
+  } catch (e) {
+    console.error('Error creating session:', e);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.post('/api/admin/sessions/end', authenticateAdmin, async (req, res) => {
+  try {
+    if (!activeSessionId) {
+      return res.status(400).json({ error: 'No active session to end.' });
+    }
+    await endSession(activeSessionId);
+    activeSessionId = null;
+    gameState = {
+      status: 'IDLE',
+      currentQuestion: null,
+      currentRoundId: null,
+      buzzersOpen: false,
+      lockedHouseId: null,
+      lockedByDeviceId: null,
+      lockedStudentName: null,
+      lockedOutHouses: [],
+      timerSeconds: 0
+    };
+    broadcastState();
+    io.to('game:main').emit('session:ended'); // Notify clients
+    res.json({ success: true });
+  } catch (e) {
+    console.error('Error ending session:', e);
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -192,9 +251,10 @@ app.get('/api/admin/recent-rounds', authenticateAdmin, async (req, res) => {
 // ==========================
 app.post('/api/admin/houses', authenticateAdmin, async (req, res) => {
   try {
+    if (!activeSessionId) return res.status(400).json({ error: 'No active session' });
     const { name, color, icon, loginCode } = req.body;
     const id = 'house_' + Date.now();
-    await createHouse(id, name, color, icon, loginCode);
+    await createHouse(id, name, color, icon, loginCode, activeSessionId);
     broadcastLeaderboard();
     res.json({ success: true, id });
   } catch (e) { res.status(500).json({ error: 'Server error' }); }
@@ -228,12 +288,13 @@ app.post('/api/admin/houses/:id/regenerate-code', authenticateAdmin, async (req,
 
 app.post('/api/admin/houses/:id/custom-code', authenticateAdmin, async (req, res) => {
   try {
+    if (!activeSessionId) return res.status(400).json({ error: 'No active session' });
     const { loginCode } = req.body;
     const clean = String(loginCode || '').trim();
     if (!clean || clean.length < 3 || /\s/.test(clean)) {
       return res.status(400).json({ error: 'Code must be at least 3 characters with no spaces.' });
     }
-    const houses = await getHouses();
+    const houses = await getHouses(activeSessionId);
     const isDuplicate = houses.some(h => h.id !== req.params.id && h.login_code?.toLowerCase() === clean.toLowerCase());
     if (isDuplicate) {
       return res.status(400).json({ error: 'This Code is already used by another house.' });
@@ -358,7 +419,8 @@ app.post('/api/admin/questions/import', authenticateAdmin, async (req, res) => {
 // ==========================
 app.get('/api/houses', async (req, res) => {
   try {
-    const houses = await getHouses();
+    if (!activeSessionId) return res.json([]);
+    const houses = await getHouses(activeSessionId);
     const publicHouses = houses.map(h => ({ id: h.id, name: h.name, color: h.color, icon: h.icon }));
     res.json(publicHouses);
   } catch (e) {
@@ -369,6 +431,7 @@ app.get('/api/houses', async (req, res) => {
 app.post('/api/login', async (req, res) => {
   const { houseId, loginCode, studentName, deviceId } = req.body;
   try {
+    if (!activeSessionId) return res.status(400).json({ error: 'No active session' });
     const cleanHouseId = String(houseId || '').trim();
     const cleanCode = String(loginCode || '').trim();
     const cleanStudentName = String(studentName || '').trim();
@@ -378,12 +441,12 @@ app.post('/api/login', async (req, res) => {
       return res.status(400).json({ error: 'Please select a House, enter the Login Code, and enter your Name.' });
     }
 
-    const house = await getHouseByLoginCode(cleanCode);
+    const house = await getHouseByLoginCode(cleanCode, activeSessionId);
     if (!house || house.id.toLowerCase() !== cleanHouseId.toLowerCase()) {
       return res.status(401).json({ error: 'Invalid login code' });
     }
 
-    await registerDevice(cleanDeviceId, house.id, cleanStudentName);
+    await registerDevice(cleanDeviceId, house.id, cleanStudentName, activeSessionId);
     broadcastDevices();
     
     res.json({ 
@@ -539,7 +602,8 @@ app.post('/api/admin/judge', authenticateAdmin, async (req, res) => {
       currentLockedHouseId,
       gameState.lockedByDeviceId,
       correct ? 'CORRECT' : 'WRONG',
-      pointsDelta
+      pointsDelta,
+      activeSessionId
     );
   }
 
@@ -632,9 +696,13 @@ io.on('connection', (socket) => {
   socket.join('game:main');
 
   socket.emit('state:update', gameState);
-  getHouses()
-    .then((houses) => socket.emit('leaderboard:update', houses))
-    .catch((err) => console.error('Error emitting leaderboard:', err));
+  if (activeSessionId) {
+    getHouses(activeSessionId)
+      .then((houses) => socket.emit('leaderboard:update', houses))
+      .catch((err) => console.error('Error emitting leaderboard:', err));
+  } else {
+    socket.emit('leaderboard:update', []);
+  }
   socket.emit('devices:update', getDeviceCounts());
 
   socket.on('join_house', (houseId) => {
@@ -663,7 +731,12 @@ function getDeviceCounts() {
 }
 
 const PORT = process.env.PORT || 3001;
-initDb().then(() => {
+initDb().then(async () => {
+  const activeSession = await getActiveSession();
+  if (activeSession) {
+    activeSessionId = activeSession.id;
+    console.log(`Resumed active session: ${activeSessionId}`);
+  }
   server.listen(PORT, () => {
     console.log(`Server listening on port ${PORT}`);
   });

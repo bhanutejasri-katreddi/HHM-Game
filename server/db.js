@@ -7,25 +7,13 @@ export const prisma = new PrismaClient();
 const toMillis = (value) => (value === null || value === undefined ? null : Number(value));
 
 export const initDb = async () => {
-  // Idempotent seed: guarantees the default houses, starter question and the
+  // Idempotent seed: guarantees the starter question and the
   // protected default admin always exist (e.g. after a DB reset/redeploy).
   await seedDefaults();
 };
 
 const seedDefaults = async () => {
-  const houseCount = await prisma.house.count();
-  if (houseCount === 0) {
-    await prisma.house.createMany({
-      data: [
-        { id: 'house_1', name: 'House Aakash', color: '#0ea5e9', icon: 'Cloud', login_code: 'AAKASH28' },
-        { id: 'house_2', name: 'House Vayu', color: '#94a3b8', icon: 'Wind', login_code: 'VAYU65' },
-        { id: 'house_3', name: 'House Agni', color: '#ef4444', icon: 'Flame', login_code: 'AGNI39' },
-        { id: 'house_4', name: 'House Prudhvi', color: '#22c55e', icon: 'TreePine', login_code: 'PRUDHVI17' },
-        { id: 'house_5', name: 'House Jal', color: '#3b82f6', icon: 'Droplets', login_code: 'JAL45' }
-      ]
-    });
-    console.log('Seeded houses.');
-  }
+  // House seeding removed; houses are created per session.
 
   const questionCount = await prisma.question.count();
   if (questionCount === 0) {
@@ -58,18 +46,56 @@ const seedDefaults = async () => {
 };
 
 // =======================
-// HOUSE HELPERS
+// SESSION HELPERS
 // =======================
-export const getHouses = async () => {
-  return prisma.house.findMany({ orderBy: [{ score: 'desc' }, { name: 'asc' }] });
+export const getActiveSession = async () => {
+  return prisma.session.findFirst({ where: { status: 'ACTIVE' }, orderBy: { created_at: 'desc' } });
 };
 
-export const getHouseByLoginCode = async (code) => {
-  if (!code) return null;
+export const createSession = async (name) => {
+  const id = 'session_' + Date.now();
+  await prisma.session.create({ data: { id, name, status: 'ACTIVE' } });
+  
+  // Create default houses for this session
+  await prisma.house.createMany({
+    data: [
+      { id: `house_1_${id}`, name: 'House Aakash', color: '#0ea5e9', icon: 'Cloud', login_code: 'AAKASH28', session_id: id },
+      { id: `house_2_${id}`, name: 'House Vayu', color: '#94a3b8', icon: 'Wind', login_code: 'VAYU65', session_id: id },
+      { id: `house_3_${id}`, name: 'House Agni', color: '#ef4444', icon: 'Flame', login_code: 'AGNI39', session_id: id },
+      { id: `house_4_${id}`, name: 'House Prudhvi', color: '#22c55e', icon: 'TreePine', login_code: 'PRUDHVI17', session_id: id },
+      { id: `house_5_${id}`, name: 'House Jal', color: '#3b82f6', icon: 'Droplets', login_code: 'JAL45', session_id: id }
+    ]
+  });
+  return id;
+};
+
+export const endSession = async (sessionId) => {
+  await prisma.$transaction(async (tx) => {
+    // Session constraints are set to CASCADE in schema, but we can do it explicitly just in case or let Prisma handle via cascade.
+    // We already added onDelete: Cascade in the Prisma schema for session_id. 
+    // Just delete the houses, devices, rounds for this session, then mark session as ended.
+    await tx.device.deleteMany({ where: { session_id: sessionId } });
+    await tx.round.deleteMany({ where: { session_id: sessionId } });
+    await tx.house.deleteMany({ where: { session_id: sessionId } });
+    await tx.session.update({ where: { id: sessionId }, data: { status: 'ENDED', ended_at: new Date() } });
+    await tx.question.updateMany({ data: { used: false } }); // Reset questions for next session
+  });
+  return true;
+};
+
+// =======================
+// HOUSE HELPERS
+// =======================
+export const getHouses = async (sessionId) => {
+  if (!sessionId) return [];
+  return prisma.house.findMany({ where: { session_id: sessionId }, orderBy: [{ score: 'desc' }, { name: 'asc' }] });
+};
+
+export const getHouseByLoginCode = async (code, sessionId) => {
+  if (!code || !sessionId) return null;
   const clean = String(code).trim();
   if (!clean) return null;
-  // Houses table is tiny; trim/case-insensitive match mirrors old SQLite TRIM + NOCASE behavior.
-  const houses = await prisma.house.findMany();
+  const houses = await prisma.house.findMany({ where: { session_id: sessionId } });
   return (
     houses.find((h) => String(h.login_code || '').trim().toLowerCase() === clean.toLowerCase()) || null
   );
@@ -88,8 +114,8 @@ export const resetLeaderboard = async () => {
   return result.count;
 };
 
-export const createHouse = async (id, name, color, icon, loginCode) => {
-  await prisma.house.create({ data: { id, name, color, icon, login_code: loginCode } });
+export const createHouse = async (id, name, color, icon, loginCode, sessionId) => {
+  await prisma.house.create({ data: { id, name, color, icon, login_code: loginCode, session_id: sessionId } });
   return id;
 };
 
@@ -228,11 +254,11 @@ export const deleteAdmin = async (id) => {
 // =======================
 // DEVICE & LOG HELPERS
 // =======================
-export const registerDevice = async (deviceId, houseId, studentName) => {
+export const registerDevice = async (deviceId, houseId, studentName, sessionId) => {
   await prisma.device.upsert({
     where: { id: deviceId },
-    update: { house_id: houseId, student_name: studentName, last_seen_at: BigInt(Date.now()) },
-    create: { id: deviceId, house_id: houseId, student_name: studentName, last_seen_at: BigInt(Date.now()) }
+    update: { house_id: houseId, student_name: studentName, last_seen_at: BigInt(Date.now()), session_id: sessionId },
+    create: { id: deviceId, house_id: houseId, student_name: studentName, last_seen_at: BigInt(Date.now()), session_id: sessionId }
   });
   return deviceId;
 };
@@ -243,7 +269,7 @@ export const getDeviceById = async (id) => {
   return { ...device, last_seen_at: toMillis(device.last_seen_at) };
 };
 
-export const logRound = async (id, questionId, houseId, deviceId, result, points) => {
+export const logRound = async (id, questionId, houseId, deviceId, result, points, sessionId) => {
   await prisma.round.create({
     data: {
       id,
@@ -252,14 +278,17 @@ export const logRound = async (id, questionId, houseId, deviceId, result, points
       locked_device_id: deviceId,
       locked_at: BigInt(Date.now()),
       result,
-      points_awarded: points
+      points_awarded: points,
+      session_id: sessionId
     }
   });
   return id;
 };
 
-export const getRecentRounds = async (limit = 5) => {
+export const getRecentRounds = async (sessionId, limit = 5) => {
+  if (!sessionId) return [];
   const rounds = await prisma.round.findMany({
+    where: { session_id: sessionId },
     orderBy: { locked_at: 'desc' },
     take: limit,
     include: { question: true, house: true }
