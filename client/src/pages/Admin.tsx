@@ -50,6 +50,8 @@ interface GameState {
   lockedOutHouses?: string[];
   buzzersOpen?: boolean;
   lockedStudentName?: string | null;
+  winnerHouse?: House | null;
+  finalLeaderboard?: House[];
 }
 
 interface RecentRound {
@@ -705,12 +707,39 @@ export default function Admin() {
     }
   };
 
+  const finishSession = () => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Finish & Conclude Event?',
+      message: 'This will announce the final Winner House on stage and on all student devices.\n\nYou can review the final standings and then exit & delete the session data.',
+      confirmText: 'Announce Winner',
+      cancelText: 'Cancel',
+      variant: 'primary',
+      icon: 'help',
+      onConfirm: async () => {
+        try {
+          const res = await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/admin/finish', {
+            method: 'POST',
+            headers: { ...getAuthHeaders() },
+            credentials: 'include'
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error);
+          fetchData();
+          showToast(`🏆 ${data.winner?.name || 'Winner House'} is declared Champion!`, 'success', 'Event Concluded');
+        } catch (e: any) {
+          showToast(e.message || 'Failed to finish session', 'error');
+        }
+      }
+    });
+  };
+
   const endSession = () => {
     setConfirmModal({
       isOpen: true,
-      title: 'End Session?',
-      message: 'This will end the current session and permanently delete all houses, players, and round data from this session. This cannot be undone. Are you sure?',
-      confirmText: 'End Session',
+      title: 'End & Delete Session?',
+      message: 'This will close the current session and permanently delete all houses, players, and round data from this event. Are you sure you want to proceed?',
+      confirmText: 'Delete Session Data',
       cancelText: 'Cancel',
       variant: 'destructive',
       icon: 'trash',
@@ -727,7 +756,7 @@ export default function Admin() {
           setHouses([]);
           setRecentRounds([]);
           setGameState({ status: 'IDLE', timerSeconds: 0, lockedHouseId: null, currentQuestion: null });
-          showToast('Session ended successfully.', 'success');
+          showToast('Session data deleted and closed.', 'success');
         } catch (e: any) {
           showToast(e.message || 'Error ending session', 'error');
         }
@@ -1027,6 +1056,79 @@ export default function Admin() {
                         </p>
                       </div>
                     )}
+
+                    {gameState.status === 'FINISHED' && (
+                      <div className="w-full flex flex-col items-center gap-6 animate-in py-4 text-center">
+                        <div className="inline-flex items-center gap-2 px-6 py-2 bg-yellow-500/20 text-yellow-400 border border-yellow-500/40 rounded-full font-black tracking-widest text-sm uppercase animate-pulse">
+                          <Award size={18} /> EVENT CHAMPION ANNOUNCED
+                        </div>
+
+                        {/* Grand Winner Showcase Card */}
+                        {(() => {
+                          const winner = gameState.winnerHouse || houses.slice().sort((a, b) => (b.score || 0) - (a.score || 0))[0];
+                          if (!winner) return null;
+                          return (
+                            <div 
+                              className="w-full max-w-xl p-8 rounded-3xl border-2 shadow-2xl backdrop-blur-2xl relative overflow-hidden flex flex-col items-center"
+                              style={{ 
+                                borderColor: winner.color, 
+                                backgroundColor: `${winner.color}18` 
+                              }}
+                            >
+                              <div className="text-6xl mb-2 animate-bounce">🏆</div>
+                              <HouseLogo name={winner.name} color={winner.color} icon={winner.icon} size="xl" className="mb-3" />
+                              <span className="text-xs font-black uppercase tracking-widest text-secondary block mb-1">
+                                1st Place &bull; Grand Winner
+                              </span>
+                              <h2 className="text-4xl sm:text-5xl font-display font-black tracking-tight text-primary">
+                                {winner.name}
+                              </h2>
+                              <div className="mt-3 px-5 py-2 rounded-2xl bg-black/40 border border-white/10 text-2xl font-display font-black" style={{ color: winner.color }}>
+                                {winner.score ?? 0} Points
+                              </div>
+                            </div>
+                          );
+                        })()}
+
+                        {/* Final Standings Leaderboard */}
+                        <div className="w-full max-w-xl bg-black/30 border border-border-glass rounded-2xl p-4 backdrop-blur-md">
+                          <h4 className="text-xs font-bold text-secondary uppercase tracking-widest mb-3 text-left">
+                            Final Standings
+                          </h4>
+                          <div className="space-y-2">
+                            {(gameState.finalLeaderboard || houses.slice().sort((a, b) => (b.score || 0) - (a.score || 0))).map((h, idx) => (
+                              <div key={h.id} className="flex items-center justify-between p-2.5 bg-white/5 rounded-xl border border-white/10">
+                                <div className="flex items-center gap-3">
+                                  <span className="font-display font-black text-sm w-6 text-center text-secondary">
+                                    {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx + 1}`}
+                                  </span>
+                                  <HouseLogo name={h.name} color={h.color} icon={h.icon} size="xs" />
+                                  <span className="font-bold text-sm text-primary">{h.name}</span>
+                                </div>
+                                <span className="text-base font-display font-black text-primary">{h.score ?? 0} pts</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Action Buttons */}
+                        <div className="flex items-center gap-3 mt-2">
+                          <Button 
+                            onClick={endSession} 
+                            className="bg-red-600 hover:bg-red-700 text-white font-bold px-8 py-3.5 rounded-xl text-sm shadow-xl shadow-red-500/20 uppercase tracking-wider"
+                          >
+                            <Trash2 size={16} className="mr-2" /> Exit &amp; Delete Session
+                          </Button>
+                          <Button 
+                            variant="secondary" 
+                            onClick={goIdle} 
+                            className="px-6 py-3.5 text-sm"
+                          >
+                            Back to Idle
+                          </Button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -1058,10 +1160,16 @@ export default function Admin() {
                   <RefreshCw size={14} /> Reset Leaderboard
                 </Button>
                 <Button 
-                  onClick={endSession} 
-                  className="w-full text-xs py-2 bg-red-600 hover:bg-red-700 text-white border border-red-500/30 transition-all font-bold tracking-widest uppercase flex items-center justify-center gap-2"
+                  onClick={finishSession} 
+                  className="w-full text-xs py-2.5 bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-300 border border-yellow-500/40 transition-all font-bold tracking-widest uppercase flex items-center justify-center gap-2 mb-2.5"
                 >
-                  <Trash2 size={14} /> End Session
+                  <Award size={15} className="text-yellow-400" /> Finish &amp; Announce Winner
+                </Button>
+                <Button 
+                  onClick={endSession} 
+                  className="w-full text-xs py-2 bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-500/30 transition-all font-bold tracking-widest uppercase flex items-center justify-center gap-2"
+                >
+                  <Trash2 size={14} /> End &amp; Delete Session
                 </Button>
               </GlassCard>
 

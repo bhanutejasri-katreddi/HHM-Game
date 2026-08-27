@@ -33,6 +33,8 @@ interface GameState {
   currentQuestion?: any;
   lockedOutHouses?: string[];
   buzzersOpen?: boolean;
+  winnerHouse?: House | null;
+  finalLeaderboard?: House[];
 }
 
 const FALLBACK_HOUSES: House[] = [
@@ -462,6 +464,54 @@ export default function Player() {
             </div>
           )}
 
+          {gameState.status === 'FINISHED' && (
+            <div className="space-y-4 animate-in flex flex-col items-center py-2 w-full text-center">
+              <span className="text-xs font-black uppercase tracking-widest text-yellow-400 px-3.5 py-1 bg-yellow-500/10 border border-yellow-500/30 rounded-full flex items-center gap-1.5 animate-pulse">
+                🏆 EVENT CONCLUDED
+              </span>
+              
+              {(() => {
+                const winner = gameState.winnerHouse || housesList.slice().sort((a, b) => (b.score || 0) - (a.score || 0))[0];
+                const isMyHouseWinner = Boolean(winner && house && winner.id === house.id);
+                if (!winner) return null;
+
+                return (
+                  <div 
+                    className="w-full p-6 rounded-2xl border-2 shadow-2xl backdrop-blur-xl flex flex-col items-center animate-in"
+                    style={{ 
+                      borderColor: winner.color, 
+                      backgroundColor: `${winner.color}15` 
+                    }}
+                  >
+                    <div className="text-5xl mb-1 animate-bounce">🏆</div>
+                    <HouseLogo name={winner.name} color={winner.color} icon={winner.icon} size="lg" className="mb-2" />
+                    <span className="text-[10px] font-black uppercase tracking-widest text-secondary block">
+                      Grand Champion
+                    </span>
+                    <h3 className="text-2xl sm:text-3xl font-display font-black text-primary">
+                      {winner.name}
+                    </h3>
+                    <span className="text-lg font-bold mt-1 block" style={{ color: winner.color }}>
+                      {winner.score ?? 0} Points
+                    </span>
+
+                    <div className="mt-4 pt-3 border-t border-white/10 w-full text-center">
+                      {isMyHouseWinner ? (
+                        <p className="text-sm font-black text-green-400 animate-pulse uppercase tracking-wider">
+                          🎉 Congratulations! Your house took 1st place!
+                        </p>
+                      ) : (
+                        <p className="text-xs font-semibold text-secondary">
+                          Great game! House {winner.name.replace('House ', '')} won the event.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+
           {gameState.status === 'GET_READY' && (
             <div className="space-y-1.5 animate-in flex flex-col items-center py-4">
               <span className="text-xs font-black uppercase tracking-widest text-orange-400 px-3.5 py-1 bg-orange-500/10 border border-orange-500/30 rounded-full flex items-center gap-1.5">
@@ -607,6 +657,7 @@ export default function Player() {
         </div>
 
         {/* Circular Arcade Buzzer & Timer Dome */}
+        {gameState.status !== 'FINISHED' && (
         <div className="relative my-2 sm:my-3 flex flex-col items-center justify-center w-full">
           {gameState.status === 'LOCKED' && isMyHouseLocked ? (
              // Circular 10s Countdown Ring with exact 100% full initial ring
@@ -693,6 +744,7 @@ export default function Player() {
             </div>
           )}
         </div>
+        )}
       </main>
 
       {/* Footer Info with Official Logo */}

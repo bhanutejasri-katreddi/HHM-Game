@@ -674,6 +674,38 @@ app.post('/api/admin/idle', authenticateAdmin, (req, res) => {
   res.json({ success: true });
 });
 
+app.post('/api/admin/finish', authenticateAdmin, async (req, res) => {
+  try {
+    if (timerInterval) clearInterval(timerInterval);
+    if (!activeSessionId) return res.status(400).json({ error: 'No active session' });
+    
+    const houses = await getHouses(activeSessionId);
+    const sorted = [...houses].sort((a, b) => (b.score || 0) - (a.score || 0));
+    const winner = sorted[0] || null;
+
+    gameState = {
+      status: 'FINISHED',
+      winnerHouse: winner,
+      finalLeaderboard: sorted,
+      currentQuestion: null,
+      currentRoundId: null,
+      buzzersOpen: false,
+      lockedHouseId: null,
+      lockedByDeviceId: null,
+      lockedStudentName: null,
+      lockedOutHouses: [],
+      timerSeconds: 0
+    };
+
+    broadcastState();
+    io.to('game:main').emit('session:finished', { winner, leaderboard: sorted });
+    res.json({ success: true, winner, leaderboard: sorted });
+  } catch (e) {
+    console.error('Error finishing game:', e);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 app.post('/api/admin/score', authenticateAdmin, async (req, res) => {
   const { houseId, pointsDelta } = req.body;
   await updateHouseScore(houseId, pointsDelta);
