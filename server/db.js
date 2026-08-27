@@ -71,13 +71,15 @@ export const createSession = async (name) => {
 
 export const endSession = async (sessionId) => {
   await prisma.$transaction(async (tx) => {
-    // Session constraints are set to CASCADE in schema, but we can do it explicitly just in case or let Prisma handle via cascade.
-    // We already added onDelete: Cascade in the Prisma schema for session_id. 
-    // Just delete the houses, devices, rounds for this session, then mark session as ended.
-    await tx.device.deleteMany({ where: { session_id: sessionId } });
-    await tx.round.deleteMany({ where: { session_id: sessionId } });
-    await tx.house.deleteMany({ where: { session_id: sessionId } });
-    await tx.session.update({ where: { id: sessionId }, data: { status: 'ENDED', ended_at: new Date() } });
+    // Delete all session-scoped data (devices, rounds, houses, and the session record itself)
+    if (sessionId) {
+      await tx.device.deleteMany({ where: { session_id: sessionId } });
+      await tx.round.deleteMany({ where: { session_id: sessionId } });
+      await tx.house.deleteMany({ where: { session_id: sessionId } });
+      await tx.session.deleteMany({ where: { id: sessionId } });
+    }
+    // Clean up any remaining ended session records or orphaned records
+    await tx.session.deleteMany({ where: { status: 'ENDED' } });
     await tx.question.updateMany({ data: { used: false } }); // Reset questions for next session
   });
   return true;
