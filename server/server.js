@@ -427,7 +427,7 @@ app.post('/api/buzz', async (req, res) => {
   gameState.lockedStudentName = null;
   gameState.lockedAt = serverTimestampMs;
   gameState.buzzElapsedMs = gameState.roundStartedAt ? (serverTimestampMs - gameState.roundStartedAt) : null;
-  gameState.timerSeconds = 15;
+  gameState.timerSeconds = 10;
 
   // Resolve student name asynchronously (safe — the round is already locked)
   let studentName = null;
@@ -485,15 +485,15 @@ app.post('/api/admin/start-round', authenticateAdmin, async (req, res) => {
   await markQuestionUsed(question.id);
 
   gameState = {
-    status: 'CLUE_SHOWN',
+    status: 'GET_READY',
     currentQuestion: { ...question, used: true },
     currentRoundId: `round_${Date.now()}`,
-    buzzersOpen: true,
+    buzzersOpen: false,
     lockedHouseId: null,
     lockedByDeviceId: null,
     lockedStudentName: null,
     lockedOutHouses: [],
-    timerSeconds: 0,
+    timerSeconds: 5,
     roundStartedAt: Date.now(),
     buzzElapsedMs: null
   };
@@ -502,6 +502,20 @@ app.post('/api/admin/start-round', authenticateAdmin, async (req, res) => {
   
   io.to('game:main').emit('clue:show', { question: gameState.currentQuestion });
   broadcastState();
+
+  timerInterval = setInterval(() => {
+    gameState.timerSeconds -= 1;
+    io.to('game:main').emit('timer:tick', { seconds: gameState.timerSeconds });
+
+    if (gameState.timerSeconds <= 0) {
+      clearInterval(timerInterval);
+      gameState.status = 'CLUE_SHOWN';
+      gameState.buzzersOpen = true;
+      gameState.roundStartedAt = Date.now();
+      broadcastState();
+    }
+  }, 1000);
+
   res.json({ success: true, question: gameState.currentQuestion });
 });
 
@@ -542,16 +556,25 @@ app.post('/api/admin/judge', authenticateAdmin, async (req, res) => {
        gameState.lockedOutHouses.push(currentLockedHouseId);
     }
 
-    // Reopen buzzers if wrong
-    gameState.status = 'CLUE_SHOWN';
+    // Lock buzzers for everyone
+    gameState.status = 'LOCKED_ALL';
     gameState.lockedHouseId = null;
     gameState.lockedByDeviceId = null;
     gameState.lockedStudentName = null;
-    gameState.buzzersOpen = true;
+    gameState.buzzersOpen = false;
     io.to('game:main').emit('answer:result', { correct: false, houseId: currentLockedHouseId });
     broadcastLeaderboard();
   }
   
+  broadcastState();
+  res.json({ success: true });
+});
+
+app.post('/api/admin/reveal', authenticateAdmin, (req, res) => {
+  if (timerInterval) clearInterval(timerInterval);
+  gameState.status = 'REVEALED';
+  gameState.buzzersOpen = false;
+  io.to('game:main').emit('answer:reveal');
   broadcastState();
   res.json({ success: true });
 });

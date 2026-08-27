@@ -86,6 +86,23 @@ export default function Projector() {
             </motion.div>
           )}
 
+          {gameState.status === 'GET_READY' && (
+            <motion.div 
+              key="get_ready"
+              initial={{ opacity: 0, y: 50 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="text-center flex flex-col items-center"
+            >
+              <h1 className="text-[14rem] leading-none font-display font-black tracking-tighter mb-12 drop-shadow-2xl">
+                {gameState.currentQuestion?.clue_letters}
+              </h1>
+              <div className="inline-block px-10 py-5 bg-orange-500/20 text-orange-500 text-5xl rounded-full border border-orange-500/50 animate-pulse font-bold tracking-widest shadow-[0_0_40px_rgba(249,115,22,0.2)] backdrop-blur-md">
+                GET READY... {timer}s
+              </div>
+            </motion.div>
+          )}
+
           {gameState.status === 'CLUE_SHOWN' && (
             <motion.div 
               key="clue"
@@ -118,7 +135,7 @@ export default function Projector() {
                    <svg className="absolute inset-0 w-full h-full -rotate-90">
                       <circle cx="128" cy="128" r="122" stroke="currentColor" strokeWidth="6" fill="none" className="text-white/5" />
                       <circle cx="128" cy="128" r="122" stroke="#22c55e" strokeWidth="6" fill="none" 
-                        strokeDasharray="766" strokeDashoffset={766 - (766 * (timer / 15))} 
+                        strokeDasharray="766" strokeDashoffset={766 - (766 * (timer / 10))} 
                         strokeLinecap="round"
                         className="transition-all duration-1000 ease-linear drop-shadow-md" />
                    </svg>
@@ -141,12 +158,60 @@ export default function Projector() {
               className="text-center w-full max-w-6xl mx-auto"
             >
               <h1 className="text-[12rem] font-display font-black tracking-tighter mb-12 text-green-500 drop-shadow-[0_0_60px_rgba(34,197,94,0.3)]">
-                CORRECT
+                CORRECT!
               </h1>
-              <div className="text-[4rem] text-primary space-y-8 bg-black/40 backdrop-blur-xl p-16 rounded-[3rem] border border-border-glass shadow-2xl font-bold leading-tight">
-                <div className="flex items-center"><span className="text-secondary font-normal w-64 text-right mr-12">Hero</span> {gameState.currentQuestion?.hero_name}</div>
-                <div className="flex items-center"><span className="text-secondary font-normal w-64 text-right mr-12">Heroine</span> {gameState.currentQuestion?.heroine_name}</div>
-                <div className="flex items-center"><span className="text-secondary font-normal w-64 text-right mr-12">Movie</span> {gameState.currentQuestion?.movie_name}</div>
+            </motion.div>
+          )}
+
+          {gameState.status === 'LOCKED_ALL' && (
+            <motion.div 
+              key="locked_all"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="text-center w-full max-w-6xl mx-auto flex flex-col items-center"
+            >
+              <h1 className="text-[14rem] leading-none font-display font-black tracking-tighter mb-12 drop-shadow-2xl">
+                {gameState.currentQuestion?.clue_letters}
+              </h1>
+              <div className="inline-block px-10 py-5 bg-red-500/20 text-red-500 text-5xl rounded-full border border-red-500/50 font-bold tracking-widest shadow-[0_0_40px_rgba(239,68,68,0.2)] backdrop-blur-md">
+                BUZZERS LOCKED
+              </div>
+            </motion.div>
+          )}
+
+          {gameState.status === 'REVEALED' && (
+            <motion.div 
+              key="revealed"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="text-center w-full max-w-6xl mx-auto flex flex-col items-center"
+            >
+              <h1 className="text-[12rem] font-display font-black tracking-tighter mb-8 text-primary drop-shadow-2xl leading-none">
+                {gameState.currentQuestion?.clue_letters}
+              </h1>
+              <div className="w-full bg-black/40 backdrop-blur-xl p-12 sm:p-16 rounded-[3rem] border border-border-glass shadow-2xl">
+                <div className="grid grid-cols-[auto_1fr] gap-x-12 gap-y-8 items-baseline font-display font-black text-left">
+                  <span className="text-brand opacity-90 text-3xl sm:text-4xl font-bold uppercase tracking-widest text-right whitespace-nowrap">
+                    Hero :
+                  </span>
+                  <span className="text-4xl sm:text-6xl text-white break-words">
+                    {gameState.currentQuestion?.hero_name}
+                  </span>
+
+                  <span className="text-brand opacity-90 text-3xl sm:text-4xl font-bold uppercase tracking-widest text-right whitespace-nowrap">
+                    Heroine :
+                  </span>
+                  <span className="text-4xl sm:text-6xl text-white break-words">
+                    {gameState.currentQuestion?.heroine_name}
+                  </span>
+
+                  <span className="text-brand opacity-90 text-3xl sm:text-4xl font-bold uppercase tracking-widest text-right whitespace-nowrap">
+                    Movie :
+                  </span>
+                  <span className="text-4xl sm:text-6xl text-white break-words">
+                    {gameState.currentQuestion?.movie_name}
+                  </span>
+                </div>
               </div>
             </motion.div>
           )}

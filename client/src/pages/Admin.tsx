@@ -87,6 +87,7 @@ export default function Admin() {
   const [editingCodeId, setEditingCodeId] = useState<string | null>(null);
   const [customCode, setCustomCode] = useState('');
   const [revealAnswer, setRevealAnswer] = useState(false);
+  const [showTimeoutPopup, setShowTimeoutPopup] = useState(false);
   const navigate = useNavigate();
 
   // CSV Import & Question Search State
@@ -215,6 +216,10 @@ export default function Admin() {
       setTimer(seconds);
     });
 
+    socket.on('timer:expired', () => {
+      setShowTimeoutPopup(true);
+    });
+
     socket.on('leaderboard:update', (data: House[]) => setHouses(data));
     socket.on('devices:update', (counts: Record<string, number>) => setDeviceCounts(counts));
 
@@ -224,10 +229,32 @@ export default function Admin() {
       socket.off('clue:show');
       socket.off('buzzer:locked');
       socket.off('timer:tick');
+      socket.off('timer:expired');
       socket.off('leaderboard:update');
       socket.off('devices:update');
     };
   }, [navigate]);
+
+  useEffect(() => {
+    if (showTimeoutPopup && gameState.status === 'LOCKED') {
+      setConfirmModal({
+        isOpen: true,
+        title: 'Did they answer in time?',
+        message: 'The 10-second timer has expired. Was the answer correct?',
+        confirmText: 'Yes, Correct',
+        cancelText: 'No, Wrong',
+        variant: 'primary',
+        icon: 'help',
+        onConfirm: async () => {
+          await judge(true);
+        },
+        onCancel: async () => {
+          await judge(false);
+        }
+      });
+      setShowTimeoutPopup(false);
+    }
+  }, [showTimeoutPopup, gameState.status]);
 
   // --- Live Game Actions ---
   const startRound = async (questionId: string | null = null) => {
@@ -266,13 +293,13 @@ export default function Admin() {
 
       if (data.question) {
         setGameState({
-          status: 'CLUE_SHOWN',
+          status: 'GET_READY',
           currentQuestion: data.question,
-          buzzersOpen: true,
+          buzzersOpen: false,
           lockedHouseId: null,
           lockedByDeviceId: null,
           lockedOutHouses: [],
-          timerSeconds: 0
+          timerSeconds: 5
         });
       }
 
@@ -296,6 +323,14 @@ export default function Admin() {
   const resetBuzzers = async () => {
     setRevealAnswer(false);
     await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/admin/reset-buzzers', {
+      method: 'POST',
+      headers: { ...getAuthHeaders() },
+      credentials: 'include'
+    });
+  };
+
+  const revealGlobal = async () => {
+    await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:3001') + '/api/admin/reveal', {
       method: 'POST',
       headers: { ...getAuthHeaders() },
       credentials: 'include'
@@ -689,187 +724,226 @@ export default function Admin() {
           <div className="grid grid-cols-12 gap-6 h-full animate-in">
             
             {/* Main Center Stage (What the whole room sees — completely unobstructed) */}
-            <GlassCard className="col-span-8 flex flex-col items-center justify-center relative overflow-hidden h-full p-8">
+            <GlassCard className="col-span-8 flex flex-col items-center justify-between relative overflow-hidden h-full p-6 sm:p-8">
               
-              {gameState.status === 'IDLE' && (
-                <div className="text-center">
+              {gameState.status === 'IDLE' ? (
+                <div className="m-auto text-center animate-in">
                   <h2 className="text-5xl sm:text-7xl font-display font-black text-brand opacity-40 mb-4">HHM GAME</h2>
                   <p className="text-xl sm:text-2xl text-secondary font-bold uppercase tracking-widest">Stage Idle &bull; Load Next Question to Begin</p>
                 </div>
-              )}
-
-              {gameState.status === 'CLUE_SHOWN' && (
-                <div className="text-center animate-in w-full max-w-3xl px-4 flex flex-col items-center justify-center">
-                  {/* Giant Unobstructed Clue */}
-                  <h2 className="text-7xl sm:text-8xl md:text-9xl font-display font-black mb-8 leading-none tracking-tight text-primary drop-shadow-lg">
-                    {gameState.currentQuestion?.clue_letters}
-                  </h2>
-
-                  <div className="inline-flex items-center gap-2 px-8 py-3.5 bg-brand/20 text-brand rounded-full animate-pulse-subtle font-bold tracking-widest text-lg border border-brand/30 mb-8">
-                    <Volume2 size={20} /> BUZZERS ARMED (WAITING FOR FIRST BUZZ)
+              ) : (
+                <div className="w-full flex-1 flex flex-col items-center justify-start overflow-y-auto">
+                  {/* Fixed Big Clue Display (Always fixed at top, never moves or jumps) */}
+                  <div className="w-full text-center shrink-0 pt-2 pb-4 sm:pb-6">
+                    <span className="text-[10px] sm:text-xs font-bold uppercase tracking-widest text-secondary block mb-1">
+                      Current Clue
+                    </span>
+                    <h1 className="text-7xl sm:text-8xl md:text-9xl font-display font-black leading-none tracking-tight text-primary drop-shadow-lg select-all">
+                      {gameState.currentQuestion?.clue_letters}
+                    </h1>
                   </div>
 
-                  {/* Masked Answer Key Card */}
-                  <div className="w-full bg-black/20 border border-border-glass p-5 sm:p-6 rounded-2xl text-left backdrop-blur-md">
-                    <div className="flex justify-between items-center mb-3">
-                      <span className="text-xs font-bold uppercase tracking-widest text-secondary flex items-center gap-1.5">
-                        Answer Key
-                      </span>
-                      <button 
-                        onClick={() => setRevealAnswer(!revealAnswer)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1 bg-white/10 hover:bg-white/20 text-primary text-xs font-bold rounded-lg border border-border-glass transition-colors"
-                      >
-                        {revealAnswer ? <><EyeOff size={14}/> Hide Answer</> : <><Eye size={14}/> Reveal Answer</>}
-                      </button>
-                    </div>
-
-                    {revealAnswer ? (
-                      <div className="text-primary text-base space-y-1.5 font-bold animate-in">
-                        <p><span className="text-secondary font-normal mr-4 w-20 inline-block">Hero:</span> {gameState.currentQuestion?.hero_name}</p>
-                        <p><span className="text-secondary font-normal mr-4 w-20 inline-block">Heroine:</span> {gameState.currentQuestion?.heroine_name}</p>
-                        <p><span className="text-secondary font-normal mr-4 w-20 inline-block">Movie:</span> {gameState.currentQuestion?.movie_name}</p>
-                      </div>
-                    ) : (
-                      <div className="flex items-center justify-between text-muted text-sm py-1.5">
-                        <span className="font-mono tracking-widest text-secondary">Hero: •••••••• | Heroine: •••••••• | Movie: ••••••••</span>
-                        <span className="text-xs text-secondary opacity-70 italic">(Hidden from audience)</span>
+                  {/* Stage Body - Dynamic by State */}
+                  <div className="w-full max-w-3xl flex-1 flex flex-col items-center justify-center">
+                    {gameState.status === 'GET_READY' && (
+                      <div className="inline-flex items-center gap-3 px-8 py-4 bg-orange-500/20 text-orange-500 rounded-full font-bold tracking-widest text-2xl border border-orange-500/30 my-4 animate-in">
+                        <Clock size={28} className="animate-pulse" /> GET READY... {timer}s
                       </div>
                     )}
-                  </div>
-                </div>
-              )}
 
-              {gameState.status === 'LOCKED' && lockedHouse && (
-                <div className="text-center w-full max-w-3xl animate-in flex flex-col items-center justify-center">
-                  
-                  {/* Spotlight on the House that buzzed in first with Official Logo */}
-                  <div 
-                    className="w-full p-6 sm:p-8 rounded-3xl border-2 shadow-2xl backdrop-blur-xl mb-6 relative overflow-hidden"
-                    style={{ 
-                      borderColor: lockedHouse.color, 
-                      backgroundColor: `${lockedHouse.color}15` 
-                    }}
-                  >
-                    <div className="flex flex-col sm:flex-row items-center sm:items-start justify-between gap-6 sm:gap-4 text-center sm:text-left">
-                      <div className="flex flex-col sm:flex-row items-center gap-4">
-                        <HouseLogo 
-                          name={lockedHouse.name} 
-                          color={lockedHouse.color} 
-                          icon={lockedHouse.icon} 
-                          size="lg" 
-                        />
-                        <div>
-                          <span className="text-xs font-black uppercase tracking-widest text-secondary block mb-1">
-                            First to Buzz In
-                          </span>
-                          <h3 className="text-3xl sm:text-4xl font-display font-black tracking-tight text-primary">
-                            {lockedHouse.name}
-                          </h3>
-                          {gameState.lockedStudentName && (
-                            <span className="text-lg font-bold text-primary mt-0.5 block">
-                              {gameState.lockedStudentName}
+                    {gameState.status === 'CLUE_SHOWN' && (
+                      <div className="w-full flex flex-col items-center gap-6 animate-in">
+                        <div className="inline-flex items-center gap-2 px-8 py-3 bg-brand/20 text-brand rounded-full animate-pulse-subtle font-bold tracking-widest text-base sm:text-lg border border-brand/30">
+                          <Volume2 size={20} /> BUZZERS ARMED (WAITING FOR FIRST BUZZ)
+                        </div>
+
+                        {/* Masked Answer Key Card */}
+                        <div className="w-full bg-black/20 border border-border-glass p-5 sm:p-6 rounded-2xl text-left backdrop-blur-md">
+                          <div className="flex justify-between items-center mb-3">
+                            <span className="text-xs font-bold uppercase tracking-widest text-secondary flex items-center gap-1.5">
+                              Answer Key
                             </span>
-                          )}
-                          {gameState.buzzElapsedMs != null && (
-                            <span className="text-xs font-bold text-muted flex items-center gap-1 mt-1">
-                              <Clock size={12} /> Buzzed in {(gameState.buzzElapsedMs / 1000).toFixed(2)}s
-                            </span>
+                            <button 
+                              onClick={() => setRevealAnswer(!revealAnswer)}
+                              className="inline-flex items-center gap-1.5 px-3 py-1 bg-white/10 hover:bg-white/20 text-primary text-xs font-bold rounded-lg border border-border-glass transition-colors"
+                            >
+                              {revealAnswer ? <><EyeOff size={14}/> Hide Answer</> : <><Eye size={14}/> Reveal Answer</>}
+                            </button>
+                          </div>
+
+                          {revealAnswer ? (
+                            <div className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2.5 items-baseline font-bold text-base text-primary animate-in">
+                              <span className="text-secondary font-normal uppercase text-xs tracking-wider whitespace-nowrap">Hero :</span>
+                              <span>{gameState.currentQuestion?.hero_name}</span>
+                              <span className="text-secondary font-normal uppercase text-xs tracking-wider whitespace-nowrap">Heroine :</span>
+                              <span>{gameState.currentQuestion?.heroine_name}</span>
+                              <span className="text-secondary font-normal uppercase text-xs tracking-wider whitespace-nowrap">Movie :</span>
+                              <span>{gameState.currentQuestion?.movie_name}</span>
+                            </div>
+                          ) : (
+                            <div className="flex items-center justify-between text-muted text-sm py-1.5">
+                              <span className="font-mono tracking-widest text-secondary">Hero: •••••••• | Heroine: •••••••• | Movie: ••••••••</span>
+                              <span className="text-xs text-secondary opacity-70 italic">(Hidden from audience)</span>
+                            </div>
                           )}
                         </div>
                       </div>
+                    )}
 
-                      {/* Live 15s Circular Countdown Ring with exact 100% full initial ring */}
-                      <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-full border-2 flex flex-col items-center justify-center bg-black/40 shadow-lg shrink-0 relative" style={{ borderColor: lockedHouse.color, color: lockedHouse.color }}>
-                        <span className="text-3xl sm:text-4xl font-display font-black leading-none">{timer}s</span>
-                        <span className="text-[9px] uppercase tracking-wider font-bold opacity-80 mt-0.5">Time Left</span>
-                        <svg className="absolute inset-0 w-full h-full -rotate-90 pointer-events-none" viewBox="0 0 100 100">
-                           <circle cx="50" cy="50" r="42" stroke="currentColor" strokeWidth="5" fill="none" className="text-white/10" />
-                           <circle 
-                             cx="50" 
-                             cy="50" 
-                             r="42" 
-                             stroke={lockedHouse.color} 
-                             strokeWidth="6" 
-                             fill="none" 
-                             strokeDasharray={263.89} 
-                             strokeDashoffset={263.89 * (1 - Math.max(0, Math.min(15, timer)) / 15)} 
-                             strokeLinecap="round"
-                             className="transition-all duration-1000 ease-linear" 
-                           />
-                        </svg>
+                    {gameState.status === 'LOCKED' && lockedHouse && (
+                      <div className="w-full flex flex-col items-center gap-5 animate-in">
+                        {/* Spotlight on the House that buzzed in first */}
+                        <div 
+                          className="w-full p-6 rounded-3xl border-2 shadow-2xl backdrop-blur-xl relative overflow-hidden"
+                          style={{ 
+                            borderColor: lockedHouse.color, 
+                            backgroundColor: `${lockedHouse.color}15` 
+                          }}
+                        >
+                          <div className="flex flex-col sm:flex-row items-center sm:items-start justify-between gap-6 sm:gap-4 text-center sm:text-left">
+                            <div className="flex flex-col sm:flex-row items-center gap-4">
+                              <HouseLogo 
+                                name={lockedHouse.name} 
+                                color={lockedHouse.color} 
+                                icon={lockedHouse.icon} 
+                                size="lg" 
+                              />
+                              <div>
+                                <span className="text-xs font-black uppercase tracking-widest text-secondary block mb-1">
+                                  First to Buzz In
+                                </span>
+                                <h3 className="text-3xl sm:text-4xl font-display font-black tracking-tight text-primary">
+                                  {lockedHouse.name}
+                                </h3>
+                                {gameState.lockedStudentName && (
+                                  <span className="text-lg font-bold text-primary mt-0.5 block">
+                                    {gameState.lockedStudentName}
+                                  </span>
+                                )}
+                                {gameState.buzzElapsedMs != null && (
+                                  <span className="text-xs font-bold text-muted flex items-center gap-1 mt-1">
+                                    <Clock size={12} /> Buzzed in {(gameState.buzzElapsedMs / 1000).toFixed(2)}s
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Live 10s Circular Countdown Ring */}
+                            <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-full border-2 flex flex-col items-center justify-center bg-black/40 shadow-lg shrink-0 relative" style={{ borderColor: lockedHouse.color, color: lockedHouse.color }}>
+                              <span className="text-3xl sm:text-4xl font-display font-black leading-none">{timer}s</span>
+                              <span className="text-[9px] uppercase tracking-wider font-bold opacity-80 mt-0.5">Time Left</span>
+                              <svg className="absolute inset-0 w-full h-full -rotate-90 pointer-events-none" viewBox="0 0 100 100">
+                                 <circle cx="50" cy="50" r="42" stroke="currentColor" strokeWidth="5" fill="none" className="text-white/10" />
+                                 <circle 
+                                   cx="50" 
+                                   cy="50" 
+                                   r="42" 
+                                   stroke={lockedHouse.color} 
+                                   strokeWidth="6" 
+                                   fill="none" 
+                                   strokeDasharray={263.89} 
+                                   strokeDashoffset={263.89 * (1 - Math.max(0, Math.min(10, timer)) / 10)} 
+                                   strokeLinecap="round"
+                                   className="transition-all duration-1000 ease-linear" 
+                                 />
+                              </svg>
+                            </div>
+                          </div>
+
+                          <div className="mt-4 pt-3 border-t border-border-glass/40 flex items-center justify-between text-xs font-bold text-secondary">
+                            <span className="flex items-center gap-1.5 text-primary font-bold">
+                              <Volume2 size={15} className="text-green-500 animate-pulse" /> Student is answering verbally out loud
+                            </span>
+                            <span className="uppercase tracking-wider opacity-80">10s Countdown</span>
+                          </div>
+                        </div>
+
+                        {/* Masked Answer Key */}
+                        <div className="w-full bg-black/20 border border-border-glass p-5 rounded-2xl text-left backdrop-blur-md">
+                          <div className="flex justify-between items-center mb-3">
+                            <span className="text-xs font-bold uppercase tracking-widest text-secondary">Answer Key</span>
+                            <button 
+                              onClick={() => setRevealAnswer(!revealAnswer)}
+                              className="inline-flex items-center gap-1.5 px-3 py-1 bg-white/10 hover:bg-white/20 text-primary text-xs font-bold rounded-lg border border-border-glass transition-colors"
+                            >
+                              {revealAnswer ? <><EyeOff size={14}/> Hide Answer</> : <><Eye size={14}/> Reveal Answer</>}
+                            </button>
+                          </div>
+
+                          {revealAnswer ? (
+                            <div className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2.5 items-baseline font-bold text-base text-primary animate-in">
+                              <span className="text-secondary font-normal uppercase text-xs tracking-wider whitespace-nowrap">Hero :</span>
+                              <span>{gameState.currentQuestion?.hero_name}</span>
+                              <span className="text-secondary font-normal uppercase text-xs tracking-wider whitespace-nowrap">Heroine :</span>
+                              <span>{gameState.currentQuestion?.heroine_name}</span>
+                              <span className="text-secondary font-normal uppercase text-xs tracking-wider whitespace-nowrap">Movie :</span>
+                              <span>{gameState.currentQuestion?.movie_name}</span>
+                            </div>
+                          ) : (
+                            <div className="flex items-center justify-between text-muted text-sm py-1.5">
+                              <span className="font-mono tracking-widest text-secondary">Hero: •••••••• | Heroine: •••••••• | Movie: ••••••••</span>
+                              <span className="text-xs text-secondary opacity-70 italic">(Hidden from audience)</span>
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    </div>
+                    )}
 
-                    <div className="mt-4 pt-3 border-t border-border-glass/40 flex items-center justify-between text-xs font-bold text-secondary">
-                      <span className="flex items-center gap-1.5 text-primary font-bold">
-                        <Volume2 size={15} className="text-green-500 animate-pulse" /> Student is answering verbally out loud
-                      </span>
-                      <span className="uppercase tracking-wider opacity-80">15s Countdown</span>
-                    </div>
-                  </div>
-
-                  {/* Question Clue & Masked/Unmasked Answer Key */}
-                  <div className="w-full bg-black/20 border border-border-glass p-5 sm:p-6 rounded-2xl text-left backdrop-blur-md">
-                    <div className="flex justify-between items-center mb-3">
-                      <div className="flex items-center gap-3">
-                        <span className="font-display font-black text-2xl text-primary">{gameState.currentQuestion?.clue_letters}</span>
-                        <span className="text-xs font-bold uppercase tracking-widest text-secondary">Answer Key</span>
+                    {gameState.status === 'LOCKED_ALL' && (
+                      <div className="flex flex-col items-center gap-6 animate-in">
+                        <div className="inline-flex items-center gap-3 px-8 py-4 bg-red-500/20 text-red-500 rounded-full font-bold tracking-widest text-2xl border border-red-500/30">
+                          <XCircle size={28} /> BUZZERS LOCKED
+                        </div>
+                        <Button size="lg" onClick={revealGlobal} className="text-xl px-12 py-6 shadow-xl animate-pulse-subtle bg-blue-600 hover:bg-blue-500 text-white border-blue-400">
+                          <Eye size={24} className="mr-3" /> REVEAL ANSWER TO ROOM
+                        </Button>
                       </div>
-                      <button 
-                        onClick={() => setRevealAnswer(!revealAnswer)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1 bg-white/10 hover:bg-white/20 text-primary text-xs font-bold rounded-lg border border-border-glass transition-colors"
-                      >
-                        {revealAnswer ? <><EyeOff size={14}/> Hide Answer</> : <><Eye size={14}/> Reveal Answer</>}
-                      </button>
-                    </div>
+                    )}
 
-                    {revealAnswer ? (
-                      <div className="text-primary text-base space-y-1.5 font-bold animate-in">
-                        <p><span className="text-secondary font-normal mr-4 w-20 inline-block">Hero:</span> {gameState.currentQuestion?.hero_name}</p>
-                        <p><span className="text-secondary font-normal mr-4 w-20 inline-block">Heroine:</span> {gameState.currentQuestion?.heroine_name}</p>
-                        <p><span className="text-secondary font-normal mr-4 w-20 inline-block">Movie:</span> {gameState.currentQuestion?.movie_name}</p>
+                    {gameState.status === 'JUDGED' && (
+                      <div className="flex flex-col items-center gap-6 animate-in">
+                        <div className="inline-flex items-center gap-3 px-8 py-4 bg-green-500/20 text-green-500 rounded-full font-bold tracking-widest text-2xl border border-green-500/30">
+                          <CheckCircle size={28} /> CORRECT!
+                        </div>
+                        <Button size="lg" onClick={revealGlobal} className="text-xl px-12 py-6 shadow-xl animate-pulse-subtle bg-blue-600 hover:bg-blue-500 text-white border-blue-400">
+                          <Eye size={24} className="mr-3" /> REVEAL ANSWER TO ROOM
+                        </Button>
                       </div>
-                    ) : (
-                      <div className="flex items-center justify-between text-muted text-sm py-1.5">
-                        <span className="font-mono tracking-widest text-secondary">Hero: •••••••• | Heroine: •••••••• | Movie: ••••••••</span>
-                        <span className="text-xs text-secondary opacity-70 italic">(Hidden from audience)</span>
+                    )}
+
+                    {gameState.status === 'REVEALED' && (
+                      <div className="w-full flex flex-col items-center gap-6 animate-in">
+                        <div className="w-full bg-brand/10 border-2 border-brand/40 p-6 sm:p-10 rounded-3xl text-left backdrop-blur-md shadow-2xl">
+                          <div className="grid grid-cols-[auto_1fr] gap-x-6 sm:gap-x-10 gap-y-4 sm:gap-y-6 items-baseline font-display font-black">
+                            <span className="text-brand opacity-90 text-2xl sm:text-3xl font-bold uppercase tracking-wider text-right whitespace-nowrap">
+                              Hero :
+                            </span>
+                            <span className="text-3xl sm:text-5xl text-white break-words">
+                              {gameState.currentQuestion?.hero_name}
+                            </span>
+
+                            <span className="text-brand opacity-90 text-2xl sm:text-3xl font-bold uppercase tracking-wider text-right whitespace-nowrap">
+                              Heroine :
+                            </span>
+                            <span className="text-3xl sm:text-5xl text-white break-words">
+                              {gameState.currentQuestion?.heroine_name}
+                            </span>
+
+                            <span className="text-brand opacity-90 text-2xl sm:text-3xl font-bold uppercase tracking-wider text-right whitespace-nowrap">
+                              Movie :
+                            </span>
+                            <span className="text-3xl sm:text-5xl text-white break-words">
+                              {gameState.currentQuestion?.movie_name}
+                            </span>
+                          </div>
+                        </div>
+
+                        <p className="text-sm font-bold text-secondary uppercase tracking-widest">
+                          Click "Load Next Question" on the right panel to proceed
+                        </p>
                       </div>
                     )}
                   </div>
-                </div>
-              )}
-
-              {gameState.status === 'JUDGED' && (
-                <div className="text-center animate-in w-full max-w-2xl flex flex-col items-center justify-center">
-                  <h2 className="text-6xl sm:text-7xl font-display font-black text-green-500 mb-6 drop-shadow-lg leading-none">CORRECT!</h2>
-                  
-                  <div className="w-full bg-black/20 p-6 rounded-3xl border border-border-glass text-left">
-                    <div className="flex justify-between items-center mb-4">
-                      <span className="text-xs font-bold uppercase tracking-widest text-secondary">Answer Reveal</span>
-                      <button 
-                        onClick={() => setRevealAnswer(!revealAnswer)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1 bg-white/10 hover:bg-white/20 text-primary text-xs font-bold rounded-lg border border-border-glass transition-colors"
-                      >
-                        {revealAnswer ? <><EyeOff size={14}/> Hide Answer</> : <><Eye size={14}/> Reveal Answer</>}
-                      </button>
-                    </div>
-
-                    {revealAnswer ? (
-                      <div className="text-xl space-y-3 font-bold text-primary animate-in">
-                        <p><span className="text-secondary font-normal w-24 inline-block">Hero:</span> {gameState.currentQuestion?.hero_name}</p>
-                        <p><span className="text-secondary font-normal w-24 inline-block">Heroine:</span> {gameState.currentQuestion?.heroine_name}</p>
-                        <p><span className="text-secondary font-normal w-24 inline-block">Movie:</span> {gameState.currentQuestion?.movie_name}</p>
-                      </div>
-                    ) : (
-                      <div className="text-center py-4 text-secondary font-bold">
-                        Click "Reveal Answer" to display the full movie and actors to the room.
-                      </div>
-                    )}
-                  </div>
-
-                  <p className="text-xs font-bold text-secondary uppercase tracking-widest mt-6">
-                    Click "Load Next Question" on the right panel to proceed
-                  </p>
                 </div>
               )}
             </GlassCard>

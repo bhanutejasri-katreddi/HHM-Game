@@ -109,7 +109,7 @@ export default function Player() {
     });
 
     socket.on('buzzer:locked', () => {
-      setTimer(15);
+      setTimer(10);
     });
 
     socket.on('timer:tick', ({ seconds }: { seconds: number }) => setTimer(seconds));
@@ -119,6 +119,13 @@ export default function Player() {
            setMyAnswerStatus(correct ? 'correct' : 'wrong');
            setTimeout(() => setMyAnswerStatus(null), 3000);
        }
+    });
+
+    socket.on('answer:reveal', () => {
+      setGameState(prev => ({
+        ...prev,
+        status: 'REVEALED'
+      }));
     });
 
     if (house) {
@@ -131,6 +138,7 @@ export default function Player() {
       socket.off('buzzer:locked');
       socket.off('timer:tick');
       socket.off('answer:result');
+      socket.off('answer:reveal');
     };
   }, [house]);
 
@@ -403,6 +411,49 @@ export default function Player() {
             </div>
           )}
 
+          {gameState.status === 'GET_READY' && (
+            <div className="space-y-1.5 animate-in flex flex-col items-center py-4">
+              <span className="text-xs font-black uppercase tracking-widest text-orange-400 px-3.5 py-1 bg-orange-500/10 border border-orange-500/30 rounded-full flex items-center gap-1.5">
+                <AlertTriangle size={14} /> GET READY
+              </span>
+              <h2 className="text-xl sm:text-2xl font-display font-bold tracking-tight text-secondary">
+                Get ready to buzz in {timer}s...
+              </h2>
+            </div>
+          )}
+
+          {gameState.status === 'REVEALED' && (
+            <div className="space-y-4 animate-in flex flex-col items-center py-4 w-full text-center">
+              <span className="text-[11px] font-bold uppercase tracking-widest text-muted">
+                Correct Answer
+              </span>
+              <div className="w-full bg-black/40 p-5 sm:p-6 rounded-2xl border border-white/10 shadow-xl">
+                <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-3 items-baseline text-left font-bold">
+                  <span className="text-brand uppercase text-xs sm:text-sm tracking-widest text-right whitespace-nowrap">
+                    Hero :
+                  </span>
+                  <span className="text-base sm:text-lg text-primary break-words">
+                    {gameState.currentQuestion?.hero_name}
+                  </span>
+
+                  <span className="text-brand uppercase text-xs sm:text-sm tracking-widest text-right whitespace-nowrap">
+                    Heroine :
+                  </span>
+                  <span className="text-base sm:text-lg text-primary break-words">
+                    {gameState.currentQuestion?.heroine_name}
+                  </span>
+
+                  <span className="text-brand uppercase text-xs sm:text-sm tracking-widest text-right whitespace-nowrap">
+                    Movie :
+                  </span>
+                  <span className="text-base sm:text-lg text-primary break-words">
+                    {gameState.currentQuestion?.movie_name}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+
           {gameState.status === 'CLUE_SHOWN' && !isLockedOut && (
             <div className="space-y-1.5 animate-in flex flex-col items-center">
               <span 
@@ -476,7 +527,7 @@ export default function Player() {
                   </div>
                 </div>
 
-                {/* Synchronized 15s Countdown Display with exact geometry */}
+                {/* Synchronized 10s Countdown Display with exact geometry */}
                 <div 
                   className="w-14 h-14 rounded-full flex flex-col items-center justify-center bg-black/40 shadow-inner shrink-0 relative"
                   style={{ color: lockedHouse.color }}
@@ -493,7 +544,7 @@ export default function Player() {
                        strokeWidth="3.5" 
                        fill="none" 
                        strokeDasharray={157.08} 
-                       strokeDashoffset={157.08 * (1 - Math.max(0, Math.min(15, timer)) / 15)} 
+                       strokeDashoffset={157.08 * (1 - Math.max(0, Math.min(10, timer)) / 10)} 
                        strokeLinecap="round"
                        className="transition-all duration-1000 ease-linear" 
                      />
@@ -507,7 +558,7 @@ export default function Player() {
         {/* Circular Arcade Buzzer & Timer Dome */}
         <div className="relative my-2 sm:my-3 flex flex-col items-center justify-center w-full">
           {gameState.status === 'LOCKED' && isMyHouseLocked ? (
-             // Circular 15s Countdown Ring with exact 100% full initial ring
+             // Circular 10s Countdown Ring with exact 100% full initial ring
              <div className="flex flex-col items-center animate-in">
                <div className="w-56 h-56 xs:w-64 xs:h-64 sm:w-72 sm:h-72 rounded-full relative flex flex-col items-center justify-center bg-black/30 backdrop-blur-xl border border-green-500/20 shadow-[0_16px_50px_rgba(34,197,94,0.25)]">
                    <span className="text-[5rem] sm:text-[6.5rem] font-display font-black leading-none text-green-400 drop-shadow-md">
@@ -526,7 +577,7 @@ export default function Player() {
                         strokeWidth="10" 
                         fill="none" 
                         strokeDasharray={552.92} 
-                        strokeDashoffset={552.92 * (1 - Math.max(0, Math.min(15, timer)) / 15)} 
+                        strokeDashoffset={552.92 * (1 - Math.max(0, Math.min(10, timer)) / 10)} 
                         strokeLinecap="round"
                         className="transition-all duration-1000 ease-linear" 
                       />
@@ -588,11 +639,6 @@ export default function Player() {
                 </div>
               </button>
 
-              {gameState.status === 'LOCKED' && isAnotherHouseLocked && (
-                <p className="text-[11px] sm:text-xs text-muted font-bold uppercase tracking-wider mt-4 text-center">
-                  Buzzers will re-arm immediately if their answer is wrong
-                </p>
-              )}
             </div>
           )}
         </div>
