@@ -894,7 +894,7 @@ export default function Admin() {
                         <div className="inline-flex items-center gap-3 px-8 py-4 bg-red-500/20 text-red-500 rounded-full font-bold tracking-widest text-2xl border border-red-500/30">
                           <XCircle size={28} /> BUZZERS LOCKED
                         </div>
-                        <Button size="lg" onClick={revealGlobal} className="text-xl px-12 py-6 shadow-xl animate-pulse-subtle bg-blue-600 hover:bg-blue-500 text-white border-blue-400">
+                        <Button onClick={revealGlobal} className="text-xl px-12 py-6 shadow-xl animate-pulse-subtle bg-blue-600 hover:bg-blue-500 text-white border-blue-400">
                           <Eye size={24} className="mr-3" /> REVEAL ANSWER TO ROOM
                         </Button>
                       </div>
@@ -905,7 +905,7 @@ export default function Admin() {
                         <div className="inline-flex items-center gap-3 px-8 py-4 bg-green-500/20 text-green-500 rounded-full font-bold tracking-widest text-2xl border border-green-500/30">
                           <CheckCircle size={28} /> CORRECT!
                         </div>
-                        <Button size="lg" onClick={revealGlobal} className="text-xl px-12 py-6 shadow-xl animate-pulse-subtle bg-blue-600 hover:bg-blue-500 text-white border-blue-400">
+                        <Button onClick={revealGlobal} className="text-xl px-12 py-6 shadow-xl animate-pulse-subtle bg-blue-600 hover:bg-blue-500 text-white border-blue-400">
                           <Eye size={24} className="mr-3" /> REVEAL ANSWER TO ROOM
                         </Button>
                       </div>
